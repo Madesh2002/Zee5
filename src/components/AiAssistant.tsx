@@ -60,25 +60,62 @@ export const AiAssistant: React.FC<{ defaultChannelId?: string }> = ({ defaultCh
           text: m.text
         }));
 
-      const res = await safeFetchJson<{ reply?: string; error?: string }>("/api/assistant/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: query,
-          history: historyPayload
-        })
-      });
+      // Attempt primary and fallback endpoints (handles Vercel rewrite variations)
+      const endpoints = ["/api/assistant/chat", "/api/assistant-chat", "/api/chat"];
+      let responseReply: string | null = null;
+      let lastErrMsg = "";
 
-      if (res.ok && res.data?.reply) {
+      for (const endpoint of endpoints) {
+        try {
+          const res = await safeFetchJson<{ reply?: string; error?: string }>(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: query,
+              history: historyPayload
+            })
+          });
+
+          if (res.ok && res.data?.reply) {
+            responseReply = res.data.reply;
+            break;
+          } else if (res.status === 405 || res.status === 404) {
+            // Try next endpoint or GET query format
+            lastErrMsg = res.error || `HTTP ${res.status}`;
+            continue;
+          } else if (res.data?.reply) {
+            responseReply = res.data.reply;
+            break;
+          } else {
+            lastErrMsg = res.data?.error || res.error || "Unexpected response";
+          }
+        } catch (e: any) {
+          lastErrMsg = e.message;
+        }
+      }
+
+      // If POST was blocked by 405 (e.g. static rewrite), try GET fallback
+      if (!responseReply) {
+        try {
+          const getRes = await safeFetchJson<{ reply?: string }>(
+            `/api/assistant/chat?message=${encodeURIComponent(query)}`
+          );
+          if (getRes.ok && getRes.data?.reply) {
+            responseReply = getRes.data.reply;
+          }
+        } catch {}
+      }
+
+      if (responseReply) {
         const botMsg: ChatMessage = {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          text: res.data.reply,
+          text: responseReply,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         };
         setMessages((prev) => [...prev, botMsg]);
       } else {
-        const errText = res.data?.error || res.error || "Failed to receive response from AI Assistant.";
+        const errText = lastErrMsg || "Failed to receive response from AI Assistant.";
         setError(errText);
       }
     } catch (err: any) {
@@ -113,7 +150,7 @@ export const AiAssistant: React.FC<{ defaultChannelId?: string }> = ({ defaultCh
             <h3 className="font-extrabold text-slate-100 text-sm sm:text-base flex items-center gap-1.5">
               <span>ZEE5 Developer AI Assistant</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                Gemini 3.6
+                Gemini 3.7
               </span>
             </h3>
             <p className="text-xs text-slate-400">Ask questions, generate PHP/Node/cURL scripts, or debug IPTV token flows</p>

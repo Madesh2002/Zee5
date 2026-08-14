@@ -2,6 +2,22 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/assistant/chat",
+      "destination": "/api/assistant/chat"
+    },
+    {
+      "source": "/assistant/chat",
+      "destination": "/api/assistant/chat"
+    },
+    {
+      "source": "/api/assistant-chat",
+      "destination": "/api/assistant-chat"
+    },
+    {
+      "source": "/api/chat",
+      "destination": "/api/chat"
+    },
+    {
       "source": "/api/playlist.m3u",
       "destination": "/api/playlist"
     },
