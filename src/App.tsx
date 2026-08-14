@@ -8,6 +8,7 @@ import { ApiSnippetModal } from "./components/ApiSnippetModal";
 import { PlaylistBuilder } from "./components/PlaylistBuilder";
 import { AdminLoginModal } from "./components/AdminLoginModal";
 import { AdminLoginPage } from "./components/AdminLoginPage";
+import { FullPagePlayer } from "./components/FullPagePlayer";
 import {
   safeFetchJson,
   fetchChannelsSafe,
@@ -29,13 +30,38 @@ import {
   SlidersHorizontal,
   ListMusic,
   Lock,
-  ShieldCheck
+  ShieldCheck,
+  Maximize2
 } from "lucide-react";
 
+const getInitialUrlState = () => {
+  if (typeof window === "undefined") {
+    return { channelId: "0-9-zeemarathi", isPlayerMode: false };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const path = window.location.pathname.toLowerCase();
+  const idFromParam = params.get("id") || params.get("channel") || params.get("ch") || params.get("player") || "";
+  const isPlayerMode = Boolean(
+    idFromParam ||
+    path.includes("/player") ||
+    path.includes("/play") ||
+    params.get("mode") === "player" ||
+    params.get("view") === "player"
+  );
+  return {
+    channelId: idFromParam || "0-9-zeemarathi",
+    isPlayerMode
+  };
+};
+
 export default function App() {
+  const initialUrlState = getInitialUrlState();
+  const [isPlayerMode, setIsPlayerMode] = useState<boolean>(initialUrlState.isPlayerMode);
+  const [playerChannelId, setPlayerChannelId] = useState<string>(initialUrlState.channelId);
+
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [selectedChannelId, setSelectedChannelId] = useState<string>("0-9-zeemarathi");
-  const [customChannelInput, setCustomChannelInput] = useState<string>("");
+  const [selectedChannelId, setSelectedChannelId] = useState<string>(initialUrlState.channelId || "0-9-zeemarathi");
+  const [customChannelInput, setCustomChannelInput] = useState<string>(initialUrlState.channelId || "");
   const [tokens, setTokens] = useState<SessionTokens>({
     sessionDeviceId: "27dd341d-035b-491f-be43-636a7ee2ee91",
     xAccessToken:
@@ -212,12 +238,36 @@ export default function App() {
     await handleSaveTokens(defaultTokens);
   };
 
+  if (isPlayerMode) {
+    return (
+      <FullPagePlayer
+        initialChannelId={playerChannelId || selectedChannelId || "0-9-zeemarathi"}
+        onBackToDashboard={() => {
+          setIsPlayerMode(false);
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("id");
+            url.searchParams.delete("channel");
+            url.searchParams.delete("mode");
+            url.searchParams.delete("view");
+            window.history.replaceState({}, "", url.pathname);
+          } catch {}
+        }}
+        isAdmin={isAdminLoggedIn}
+      />
+    );
+  }
+
   if (!isAdminLoggedIn) {
     return (
       <AdminLoginPage
         onLoginSuccess={(username) => {
           setIsAdminLoggedIn(true);
           setAdminUser(username);
+        }}
+        onOpenPlayer={(channelId) => {
+          setPlayerChannelId(channelId || "0-9-zeemarathi");
+          setIsPlayerMode(true);
         }}
       />
     );
@@ -283,6 +333,18 @@ export default function App() {
               >
                 <Settings className="w-3.5 h-3.5" />
                 <span>Session Tokens</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPlayerChannelId(selectedChannelId || "0-9-zeemarathi");
+                  setIsPlayerMode(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all shrink-0 bg-sky-950/80 hover:bg-sky-900 border border-sky-700/60 text-sky-300 shadow-sm"
+                title="Launch full page video player with channel switcher"
+              >
+                <Maximize2 className="w-3.5 h-3.5 text-sky-400" />
+                <span>Full Page Player</span>
               </button>
 
               <button
@@ -431,6 +493,10 @@ export default function App() {
                 data={extractedData}
                 loading={loading}
                 onAddToPlaylist={() => setActiveTab("playlist")}
+                onOpenFullPagePlayer={(channelId) => {
+                  setPlayerChannelId(channelId);
+                  setIsPlayerMode(true);
+                }}
               />
             )}
 

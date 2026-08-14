@@ -4,9 +4,10 @@ import { performAdminLogin, getLocalAdminCredentials } from "../utils/apiClient"
 
 interface AdminLoginPageProps {
   onLoginSuccess: (username: string, token: string) => void;
+  onOpenPlayer?: (channelId?: string) => void;
 }
 
-export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess }) => {
+export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onOpenPlayer }) => {
   const localCreds = getLocalAdminCredentials();
   const [usernameInput, setUsernameInput] = useState(localCreds.username || "admin");
   const [passwordInput, setPasswordInput] = useState(localCreds.password || "admin123");
@@ -192,6 +193,19 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess }
               <Lock className="w-4 h-4" />
               <span>{isSubmitting ? "Verifying Credentials..." : "Access Dashboard"}</span>
             </button>
+
+            {onOpenPlayer && (
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={() => onOpenPlayer("0-9-zeemarathi")}
+                  className="w-full py-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-sky-400 hover:text-sky-300 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-inner"
+                >
+                  <Tv className="w-4 h-4" />
+                  <span>Launch Live Full Page Player (Free)</span>
+                </button>
+              </div>
+            )}
           </form>
         </div>
       </main>

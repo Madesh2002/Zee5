@@ -1,15 +1,16 @@
 import React, { useState } from "react";
 import { ExtractedPlaybackData } from "../types";
-import { Play, Key, ShieldCheck, Tv, Copy, Check, ExternalLink, Image as ImageIcon, ListMusic, Radio } from "lucide-react";
+import { Play, Key, ShieldCheck, Tv, Copy, Check, ExternalLink, Image as ImageIcon, ListMusic, Radio, Maximize2 } from "lucide-react";
 import { LiveStreamPlayer } from "./LiveStreamPlayer";
 
 interface AssetPreviewCardProps {
   data: ExtractedPlaybackData;
   loading?: boolean;
   onAddToPlaylist?: () => void;
+  onOpenFullPagePlayer?: (channelId: string) => void;
 }
 
-export const AssetPreviewCard: React.FC<AssetPreviewCardProps> = ({ data, loading, onAddToPlaylist }) => {
+export const AssetPreviewCard: React.FC<AssetPreviewCardProps> = ({ data, loading, onAddToPlaylist, onOpenFullPagePlayer }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showMediaPlayer, setShowMediaPlayer] = useState<boolean>(true);
 
@@ -83,6 +84,17 @@ export const AssetPreviewCard: React.FC<AssetPreviewCardProps> = ({ data, loadin
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+          {onOpenFullPagePlayer && (
+            <button
+              onClick={() => onOpenFullPagePlayer(data.id)}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white rounded-xl shadow-lg shadow-sky-950 transition-all active:scale-95"
+              title="Open full page immersive live player"
+            >
+              <Maximize2 className="w-4 h-4" />
+              <span>Full Page Player</span>
+            </button>
+          )}
+
           {onAddToPlaylist && (
             <button
               onClick={onAddToPlaylist}
