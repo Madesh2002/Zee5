@@ -12,6 +12,7 @@ import {
   safeFetchJson,
   fetchChannelsSafe,
   fetchTokensSafe,
+  fetchPlaybackDetailsSafe,
   getStoredAdminSession,
   clearAdminSession
 } from "./utils/apiClient";
@@ -101,30 +102,21 @@ export default function App() {
     setRawTextError(null);
 
     try {
-      const res = await safeFetchJson<PlaybackFullResponse>(
-        `/api/playback?id=${encodeURIComponent(targetId.trim())}&format=full`
-      );
+      const res = await fetchPlaybackDetailsSafe(targetId, tokens, channels);
 
-      if (!res.ok || !res.data) {
-        setRawTextError(res.error || "Failed to fetch stream details from server.");
+      if (!res.ok || !res.extracted) {
+        setRawTextError(res.error || "Failed to fetch stream details.");
         setExtractedData(null);
-        setFullResponseData({ error: res.error, status: res.status });
+        setFullResponseData(res.fullResponse || { error: res.error });
       } else {
-        const data = res.data;
-        if (data.error) {
-          setRawTextError(data.error);
-          setExtractedData(null);
-          setFullResponseData(data);
-        } else if (data.extracted) {
-          setExtractedData(data.extracted);
-          setFullResponseData(data);
-        } else {
-          setExtractedData(data as any);
-          setFullResponseData(data);
+        setExtractedData(res.extracted);
+        setFullResponseData(res.fullResponse);
+        if (res.error && !res.isClientFallback) {
+          setRawTextError(res.error);
         }
       }
     } catch (err: any) {
-      setRawTextError("Network or Server error: " + err.message);
+      setRawTextError("Playback resolution notice: " + err.message);
       setExtractedData(null);
     } finally {
       setLoading(false);

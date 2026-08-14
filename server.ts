@@ -1,12 +1,22 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
+
+// Enable CORS for API routes
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-access-token, x-dd-token, X-Z5-Guest-Token");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // In-memory token & IP defaults (can be updated dynamically via UI)
 let currentTokens = {
@@ -138,8 +148,8 @@ function loadChannelData() {
   return cachedChannelData;
 }
 
-// 1. GET /api/channels
-app.get("/api/channels", async (req, res) => {
+// 1. GET /api/channels & /channels
+app.get(["/api/channels", "/channels"], async (req, res) => {
   if (cachedChannelData.data.length === 0) {
     await fetchChannelsFromRemote(DEFAULT_NPOINT_CHANNELS_API);
   }
@@ -151,8 +161,8 @@ app.get("/api/channels", async (req, res) => {
   });
 });
 
-// 2. POST /api/channels
-app.post("/api/channels", (req, res) => {
+// 2. POST /api/channels & /channels
+app.post(["/api/channels", "/channels"], (req, res) => {
   try {
     const payload = req.body;
     if (!payload || !Array.isArray(payload.data)) {
@@ -175,8 +185,8 @@ app.post("/api/channels", (req, res) => {
   }
 });
 
-// 2b. POST /api/channels/sync
-app.post("/api/channels/sync", async (req, res) => {
+// 2b. POST /api/channels/sync & /channels/sync
+app.post(["/api/channels/sync", "/channels/sync"], async (req, res) => {
   const targetUrl = (req.body?.apiUrl || DEFAULT_NPOINT_CHANNELS_API).trim();
   const result = await fetchChannelsFromRemote(targetUrl);
   if (result.success) {
@@ -193,7 +203,7 @@ let adminCredentials = {
 };
 
 // Admin authentication endpoints
-app.get("/api/admin/info", (req, res) => {
+app.get(["/api/admin/info", "/admin/info"], (req, res) => {
   res.json({
     username: adminCredentials.username,
     defaultUsername: "admin",
@@ -202,7 +212,7 @@ app.get("/api/admin/info", (req, res) => {
   });
 });
 
-app.post("/api/admin/login", (req, res) => {
+app.post(["/api/admin/login", "/admin/login"], (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ success: false, error: "Username and password are required." });
@@ -223,7 +233,7 @@ app.post("/api/admin/login", (req, res) => {
   });
 });
 
-app.post("/api/admin/change-credentials", (req, res) => {
+app.post(["/api/admin/change-credentials", "/admin/change-credentials"], (req, res) => {
   const { currentPassword, newUsername, newPassword } = req.body || {};
   if (currentPassword !== adminCredentials.password) {
     return res.status(401).json({ success: false, error: "Incorrect current password." });
@@ -242,12 +252,12 @@ app.post("/api/admin/change-credentials", (req, res) => {
   });
 });
 
-app.get("/api/my-ip", (req, res) => {
+app.get(["/api/my-ip", "/my-ip"], (req, res) => {
   const ip = ((req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "").split(",")[0].trim();
   res.json({ ip: ip || "127.0.0.1" });
 });
 
-app.get("/api/tokens", (req, res) => {
+app.get(["/api/tokens", "/tokens"], (req, res) => {
   res.json({
     ...currentTokens,
     lastTokenSyncTime,
@@ -255,7 +265,7 @@ app.get("/api/tokens", (req, res) => {
   });
 });
 
-app.post("/api/tokens", (req, res) => {
+app.post(["/api/tokens", "/tokens"], (req, res) => {
   const { sessionDeviceId, xAccessToken, xDdToken, userIpAddress, autoRotateIp, hideRawVideoToken } = req.body || {};
   if (sessionDeviceId !== undefined) currentTokens.sessionDeviceId = sessionDeviceId.trim();
   if (xAccessToken !== undefined) currentTokens.xAccessToken = xAccessToken.trim();
@@ -271,7 +281,7 @@ app.post("/api/tokens", (req, res) => {
   });
 });
 
-app.post("/api/tokens/sync", async (req, res) => {
+app.post(["/api/tokens/sync", "/tokens/sync"], async (req, res) => {
   const targetUrl = (req.body?.apiUrl || DEFAULT_NPOINT_API).trim();
   const result = await fetchTokensFromRemote(targetUrl);
   if (result.success) {
@@ -453,18 +463,74 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
 
       return res.json(filteredResponse);
     } else {
-      if (apiData) {
-        return res.status(upstreamRes.status || 200).json(apiData);
+      const host = req.headers.host || "localhost:3000";
+      const protocol = req.headers["x-forwarded-proto"] || "http";
+      const hostDomainUrl = `${protocol}://${host}/api/live/${targetChannelId}.m3u8`;
+      const fallbackTitle = channelObj?.title || channelObj?.name || targetChannelId;
+      const fallbackImage = channelObj?.logo || `https://akamaividz.zee5.com/resources/${targetChannelId}/list/270x152/1920x1080list.jpg`;
+      const fallbackUrl = (channelObj?.url && !channelObj.url.includes("aasthaott.akamaized.net")) ? channelObj.url : hostDomainUrl;
+
+      const fallbackExtracted = {
+        id: targetChannelId,
+        title: fallbackTitle,
+        image_url: fallbackImage,
+        video_token: fallbackUrl,
+        raw_video_token: fallbackUrl,
+        user_ip_used: activeIp,
+        isFallback: true
+      };
+
+      if (req.query.format === "full" || req.body?.format === "full") {
+        return res.json({
+          status: "partial_fallback",
+          extracted: fallbackExtracted,
+          rawResponse: apiData || { message: "Upstream token refresh unavailable, fallback link generated." },
+          requestMeta: {
+            requestUrl,
+            durationMs,
+            targetChannelId,
+            language: targetLanguage,
+            country: targetCountry,
+            upstreamStatus: upstreamRes?.status || 502
+          }
+        });
       }
-      return res.status(502).json({
-        error: "Empty or invalid upstream response from Zee5 server.",
-        rawText: responseText
-      });
+
+      return res.json(fallbackExtracted);
     }
   } catch (err: any) {
-    return res.status(502).json({
-      error: `Transport Connection Failure: ${err.message}`
-    });
+    const host = req.headers.host || "localhost:3000";
+    const protocol = req.headers["x-forwarded-proto"] || "http";
+    const hostDomainUrl = `${protocol}://${host}/api/live/${targetChannelId}.m3u8`;
+    const fallbackTitle = channelObj?.title || channelObj?.name || targetChannelId;
+    const fallbackImage = channelObj?.logo || `https://akamaividz.zee5.com/resources/${targetChannelId}/list/270x152/1920x1080list.jpg`;
+    const fallbackUrl = (channelObj?.url && !channelObj.url.includes("aasthaott.akamaized.net")) ? channelObj.url : hostDomainUrl;
+
+    const fallbackExtracted = {
+      id: targetChannelId,
+      title: fallbackTitle,
+      image_url: fallbackImage,
+      video_token: fallbackUrl,
+      raw_video_token: fallbackUrl,
+      user_ip_used: activeIp,
+      isFallback: true,
+      error: `Upstream connection note: ${err.message}`
+    };
+
+    if (req.query.format === "full" || req.body?.format === "full") {
+      return res.json({
+        status: "offline_fallback",
+        extracted: fallbackExtracted,
+        rawResponse: { error: err.message, note: "Loaded via channel register fallback." },
+        requestMeta: {
+          targetChannelId,
+          language: targetLanguage,
+          country: targetCountry
+        }
+      });
+    }
+
+    return res.json(fallbackExtracted);
   }
 }
 
@@ -660,15 +726,15 @@ app.post("/api/channels/ping-batch", async (req: express.Request, res: express.R
   });
 });
 
-app.get("/api/ping", async (req: express.Request, res: express.Response) => {
+app.get(["/api/ping", "/ping"], async (req: express.Request, res: express.Response) => {
   const channelId = (((req.query.id as string) || "0-9-zeemarathi") as string).trim();
   const customUrl = (((req.query.url as string) || "") as string).trim();
   const result = await performStreamPing(channelId, customUrl);
   return res.json(result);
 });
 
-app.get("/api/playback", handlePlaybackExtraction);
-app.post("/api/playback", handlePlaybackExtraction);
+app.get(["/api/playback", "/playback"], handlePlaybackExtraction);
+app.post(["/api/playback", "/playback"], handlePlaybackExtraction);
 
 async function handlePlaylistM3u(req: express.Request, res: express.Response) {
   try {
@@ -843,23 +909,22 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
   }
 }
 
-app.get("/api/playlist.m3u", handlePlaylistM3u);
-app.get("/api/playlist", handlePlaylistM3u);
+app.get(["/api/playlist.m3u", "/playlist.m3u", "/api/playlist", "/playlist"], handlePlaylistM3u);
 
-app.get("/api/live/:id.m3u8", (req: express.Request, res: express.Response) => {
+app.get(["/api/live/:id.m3u8", "/live/:id.m3u8"], (req: express.Request, res: express.Response) => {
   req.query.id = req.params.id;
   req.query.redirect = "true";
   return handlePlaybackExtraction(req, res);
 });
 
-app.get("/api/live/:id", (req: express.Request, res: express.Response) => {
+app.get(["/api/live/:id", "/live/:id"], (req: express.Request, res: express.Response) => {
   req.query.id = req.params.id;
   req.query.redirect = "true";
   return handlePlaybackExtraction(req, res);
 });
 
 // AI Assistant Chat endpoint
-app.post("/api/assistant/chat", async (req: express.Request, res: express.Response) => {
+app.post(["/api/assistant/chat", "/assistant/chat"], async (req: express.Request, res: express.Response) => {
   try {
     const { message, history } = req.body || {};
     if (!message || typeof message !== "string") {
@@ -918,11 +983,23 @@ Key technical facts to assist users:
   }
 });
 
+// Global Express Error Handler to prevent any FUNCTION_INVOCATION_FAILED crashes
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Express Global Error:", err);
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: "Internal Server Error: " + (err.message || String(err)),
+      path: req.path
+    });
+  }
+});
+
 async function startServer() {
-  await fetchTokensFromRemote(DEFAULT_NPOINT_API);
-  await fetchChannelsFromRemote(DEFAULT_NPOINT_CHANNELS_API);
+  await fetchTokensFromRemote(DEFAULT_NPOINT_API).catch(() => {});
+  await fetchChannelsFromRemote(DEFAULT_NPOINT_CHANNELS_API).catch(() => {});
 
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"
