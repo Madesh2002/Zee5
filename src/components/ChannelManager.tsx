@@ -23,6 +23,7 @@ import {
   X
 } from "lucide-react";
 import { safeFetchJson, pingChannelStreamSafe } from "../utils/apiClient";
+import { LiveStreamPlayer } from "./LiveStreamPlayer";
 
 interface ChannelManagerProps {
   channels: Channel[];
@@ -962,9 +963,20 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
               </div>
 
               {diagnosticModalChannel.ping?.streamUrl && (
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1">
-                  <span className="text-[10px] text-slate-500 uppercase font-semibold block">Tested Stream URL</span>
-                  <code className="text-[10px] text-emerald-400 font-mono break-all block bg-slate-900 p-1.5 rounded border border-slate-800 max-h-20 overflow-y-auto">
+                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-500 uppercase font-semibold block">Tested Stream URL & Live Player</span>
+                  </div>
+                  <div className="rounded-lg overflow-hidden border border-slate-800">
+                    <LiveStreamPlayer
+                      streamUrl={diagnosticModalChannel.ping.streamUrl}
+                      poster={diagnosticModalChannel.channel.logo || undefined}
+                      title={diagnosticModalChannel.channel.title || diagnosticModalChannel.channel.id}
+                      channelId={diagnosticModalChannel.channel.id}
+                      autoPlay={false}
+                    />
+                  </div>
+                  <code className="text-[10px] text-emerald-400 font-mono break-all block bg-slate-900 p-1.5 rounded border border-slate-800 max-h-16 overflow-y-auto">
                     {diagnosticModalChannel.ping.streamUrl}
                   </code>
                 </div>

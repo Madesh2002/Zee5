@@ -1037,6 +1037,9 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
     if (isM3u8) {
       const text = await upstreamRes.text();
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       let parsedUrl: URL;
       try {
@@ -1054,6 +1057,9 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
         // Rewrite URI="..." attributes in tags like #EXT-X-MAP:URI="...", #EXT-X-KEY:URI="..."
         if (trimmed.startsWith("#")) {
           return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
+            if (uri.includes("/api/stream-proxy?url=")) {
+              return `URI="${uri}"`;
+            }
             let fullUri = uri;
             if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
               if (uri.startsWith("/")) {
@@ -1064,6 +1070,11 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
             }
             return `URI="${baseUrl}/api/stream-proxy?url=${encodeURIComponent(fullUri)}"`;
           });
+        }
+
+        // Check if line is already proxied
+        if (trimmed.includes("/api/stream-proxy?url=")) {
+          return trimmed;
         }
 
         // Rewrite segment or sub-playlist URL lines
@@ -1087,6 +1098,7 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
       if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
       const contentRange = upstreamRes.headers.get("content-range");
       if (contentRange) res.setHeader("Content-Range", contentRange);
+      res.setHeader("Cache-Control", "public, max-age=3600");
 
       const arrayBuffer = await upstreamRes.arrayBuffer();
       return res.send(Buffer.from(arrayBuffer));

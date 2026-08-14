@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ExtractedPlaybackData } from "../types";
-import { Play, Key, ShieldCheck, Tv, Copy, Check, ExternalLink, Image as ImageIcon, ListMusic, Maximize2, Radio, Volume2 } from "lucide-react";
+import { Play, Key, ShieldCheck, Tv, Copy, Check, ExternalLink, Image as ImageIcon, ListMusic, Radio } from "lucide-react";
+import { LiveStreamPlayer } from "./LiveStreamPlayer";
 
 interface AssetPreviewCardProps {
   data: ExtractedPlaybackData;
@@ -124,7 +125,7 @@ export const AssetPreviewCard: React.FC<AssetPreviewCardProps> = ({ data, loadin
                 rel="noreferrer"
                 className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 font-medium"
               >
-                <span>Open Direct M3U8</span>
+                <span>Raw M3U8</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             )}
@@ -138,39 +139,37 @@ export const AssetPreviewCard: React.FC<AssetPreviewCardProps> = ({ data, loadin
         </div>
 
         {showMediaPlayer && (
-          <div className="relative aspect-video w-full max-w-3xl mx-auto bg-slate-900 rounded-xl overflow-hidden border border-slate-800 flex flex-col items-center justify-center text-center p-4">
+          <div>
             {isStreamUrlAvailable ? (
-              <video
-                controls
-                autoPlay={false}
-                src={data.video_token!}
+              <LiveStreamPlayer
+                streamUrl={data.video_token!}
                 poster={data.image_url || undefined}
-                className="w-full h-full object-contain rounded-lg bg-black"
-                onError={() => {}}
-              >
-                <source src={data.video_token!} type="application/x-mpegURL" />
-                Your browser does not support inline HLS video playback.
-              </video>
+                title={data.title}
+                channelId={data.id}
+                autoPlay={false}
+              />
             ) : (
-              <div className="space-y-3 max-w-md my-auto">
-                <div className="w-12 h-12 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mx-auto shadow-inner">
-                  <Play className="w-6 h-6 ml-0.5" />
+              <div className="relative aspect-video w-full max-w-3xl mx-auto bg-slate-900 rounded-xl overflow-hidden border border-slate-800 flex flex-col items-center justify-center text-center p-4">
+                <div className="space-y-3 max-w-md my-auto">
+                  <div className="w-12 h-12 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mx-auto shadow-inner">
+                    <Play className="w-6 h-6 ml-0.5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-200">{data.title} Stream Ready</h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Token extracted successfully. Video Token / Playback URL is primed for player consumption.
+                    </p>
+                  </div>
+                  {data.video_token && (
+                    <button
+                      onClick={() => copyToClipboard(data.video_token, "video_token")}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition-all shadow-md"
+                    >
+                      {copiedField === "video_token" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedField === "video_token" ? "Copied Stream URL!" : "Copy Stream URL"}</span>
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-200">{data.title} Stream Ready</h4>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Token extracted successfully. Video Token / Playback URL is primed for player consumption.
-                  </p>
-                </div>
-                {data.video_token && (
-                  <button
-                    onClick={() => copyToClipboard(data.video_token, "video_token")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition-all shadow-md"
-                  >
-                    {copiedField === "video_token" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedField === "video_token" ? "Copied Stream URL!" : "Copy Stream URL"}</span>
-                  </button>
-                )}
               </div>
             )}
           </div>
