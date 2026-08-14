@@ -20,7 +20,7 @@ import {
   CheckCircle2,
   XCircle
 } from "lucide-react";
-import { safeFetchJson } from "../utils/apiClient";
+import { safeFetchJson, fetchPlaybackDetailsSafe } from "../utils/apiClient";
 
 interface PlaylistBuilderProps {
   channels: Channel[];
@@ -176,27 +176,28 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
 
     const fetchSingleToken = async (item: PlaylistItem): Promise<PlaylistItem> => {
       try {
-        const res = await safeFetchJson<any>(`/api/playback?id=${encodeURIComponent(item.id)}`);
-        if (res.ok && res.data?.video_token) {
+        const res = await fetchPlaybackDetailsSafe(item.id, null, channels);
+        if (res.ok && res.extracted?.video_token) {
           return {
             ...item,
-            title: res.data.title || item.title,
-            image_url: res.data.image_url || item.image_url,
-            video_token: res.data.video_token,
-            status: "success"
+            title: res.extracted.title || item.title,
+            image_url: res.extracted.image_url || item.image_url,
+            video_token: res.extracted.video_token,
+            status: "success",
+            errorMsg: undefined
           };
         } else {
           return {
             ...item,
             status: "error",
-            errorMsg: res.data?.error || res.error || "No video_token returned"
+            errorMsg: res.error || "No video_token returned"
           };
         }
       } catch (err: any) {
         return {
           ...item,
           status: "error",
-          errorMsg: err.message || "Network request failed"
+          errorMsg: err.message || "Token extraction failed"
         };
       }
     };
@@ -650,17 +651,18 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
                               prev.map((it) => (it.id === item.id ? { ...it, status: "fetching" } : it))
                             );
                             try {
-                              const res = await safeFetchJson<any>(`/api/playback?id=${encodeURIComponent(item.id)}`);
-                              if (res.ok && res.data?.video_token) {
+                              const res = await fetchPlaybackDetailsSafe(item.id, null, channels);
+                              if (res.ok && res.extracted?.video_token) {
                                 setItems((prev) =>
                                   prev.map((it) =>
                                     it.id === item.id
                                       ? {
                                           ...it,
-                                          title: res.data.title || item.title,
-                                          image_url: res.data.image_url || item.image_url,
-                                          video_token: res.data.video_token,
-                                          status: "success"
+                                          title: res.extracted!.title || item.title,
+                                          image_url: res.extracted!.image_url || item.image_url,
+                                          video_token: res.extracted!.video_token,
+                                          status: "success",
+                                          errorMsg: undefined
                                         }
                                       : it
                                   )
@@ -669,14 +671,14 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
                                 setItems((prev) =>
                                   prev.map((it) =>
                                     it.id === item.id
-                                      ? { ...it, status: "error", errorMsg: res.data?.error || res.error || "No token" }
+                                      ? { ...it, status: "error", errorMsg: res.error || "No token returned" }
                                       : it
                                   )
                                 );
                               }
-                            } catch {
+                            } catch (err: any) {
                               setItems((prev) =>
-                                prev.map((it) => (it.id === item.id ? { ...it, status: "error" } : it))
+                                prev.map((it) => (it.id === item.id ? { ...it, status: "error", errorMsg: err.message } : it))
                               );
                             }
                           }}
@@ -862,24 +864,30 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[11px] leading-relaxed text-emerald-400/90 focus:outline-none select-all resize-none"
             />
 
-            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-1.5 text-xs">
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2.5 text-xs">
               <div className="flex items-center justify-between text-slate-300">
-                <span className="font-semibold text-sky-400 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5" /> Direct IPTV Server Feed:
+                <span className="font-semibold text-cyan-400 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5" /> Direct IPTV Server Feed (TiviMate & OTT Navigator Ready):
                 </span>
                 <button
                   onClick={handleCopyServerUrl}
-                  className="text-[11px] text-slate-400 hover:text-white underline font-mono"
+                  className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-mono flex items-center gap-1"
                 >
-                  {copiedApiUrl ? "Copied Link!" : "Copy Server URL"}
+                  {copiedApiUrl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedApiUrl ? "Copied Feed URL!" : "Copy Feed URL"}</span>
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400 font-mono break-all bg-slate-900 border border-slate-800/80 p-2 rounded">
+              <p className="text-[11px] text-slate-300 font-mono break-all select-all bg-slate-900 border border-slate-800/80 p-2.5 rounded-lg">
                 {serverApiUrl}
               </p>
-              <p className="text-[10px] text-slate-500">
-                Paste this feed URL into TiviMate, OTT Navigator, or VLC to automatically stream live authenticated channels.
-              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px]">
+                <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-slate-400">
+                  <span className="font-semibold text-slate-200">OTT Navigator / TiviMate:</span> Connects directly without login.
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-slate-400">
+                  <span className="font-semibold text-slate-200">Web Browser Access:</span> Protected by Admin Gatekeeper page.
+                </div>
+              </div>
             </div>
           </div>
         </div>

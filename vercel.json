@@ -2,6 +2,26 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/playlist.m3u",
+      "destination": "/api/playlist"
+    },
+    {
+      "source": "/playlist.m3u",
+      "destination": "/api/playlist"
+    },
+    {
+      "source": "/api/live/:id(.*)",
+      "destination": "/api/live/:id"
+    },
+    {
+      "source": "/live/:id(.*)",
+      "destination": "/api/live/:id"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
