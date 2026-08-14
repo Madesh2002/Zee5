@@ -1,5 +1,5 @@
 {
-  "name": "ZEE5 Stream Control",
+  "name": "ZEE5 Control",
   "description": "ZEE5 stream control plane, token extractor, M3U playlist generator, and developer AI assistant with Vercel and serverless deployment support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
