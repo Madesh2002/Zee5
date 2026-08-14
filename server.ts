@@ -311,15 +311,16 @@ app.post(["/api/tokens/sync", "/tokens/sync"], async (req, res) => {
 
 // Playback details extraction
 async function handlePlaybackExtraction(req: express.Request, res: express.Response) {
-  const rawChannelId = (((req.query.id as string) || req.body?.id || "") as string).trim();
+  const rawParam = (((req.params?.id as string) || (req.query?.id as string) || req.body?.id || "") as string).trim();
+  const rawChannelId = rawParam.replace(/\.m3u8$/i, "").trim();
 
   if (!rawChannelId) {
     return res.status(400).json({
-      error: "Missing 'id' parameter. Usage: /api/playback?id=CHANNEL_ID or POST JSON with { \"id\": \"CHANNEL_ID\" }"
+      error: "Missing 'id' parameter. Usage: /api/playback?id=CHANNEL_ID or /api/live/CHANNEL_ID.m3u8"
     });
   }
 
-  const cleanedChannelId = rawChannelId.replace(/-\d+$/, "");
+  const cleanedChannelId = rawChannelId.replace(/-\d+$/, "").replace(/\.m3u8$/i, "");
   const jsonData = loadChannelData();
   const channelsList = Array.isArray(jsonData?.data) ? jsonData.data : [];
 
@@ -327,10 +328,11 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
     c.id === rawChannelId ||
     c.id === cleanedChannelId ||
     c.slug === rawChannelId ||
-    c.slug === cleanedChannelId
+    c.slug === cleanedChannelId ||
+    (c.id && c.id.replace(/-\d+$/, "") === cleanedChannelId)
   );
 
-  const targetChannelId = channelObj ? channelObj.id : cleanedChannelId;
+  const targetChannelId = channelObj ? channelObj.id.replace(/-\d+$/, "") : cleanedChannelId;
   const targetLanguage = channelObj?.language || "mr";
   const targetCountry = channelObj?.country || "IN";
 

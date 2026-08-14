@@ -3,26 +3,38 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
-    },
-    {
-      "source": "/api",
-      "destination": "/api/index"
+      "destination": "/api/index?__vercel_path=/api/$1"
     },
     {
       "source": "/playlist.m3u",
-      "destination": "/api/index"
+      "destination": "/api/index?__vercel_path=/api/playlist.m3u"
     },
     {
-      "source": "/assistant-chat",
-      "destination": "/api/index"
+      "source": "/playlist",
+      "destination": "/api/index?__vercel_path=/api/playlist.m3u"
     },
     {
       "source": "/live/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/index?__vercel_path=/api/live/$1"
     },
     {
-      "source": "/(.*)",
+      "source": "/assistant-chat",
+      "destination": "/api/index?__vercel_path=/api/assistant/chat"
+    },
+    {
+      "source": "/playback",
+      "destination": "/api/index?__vercel_path=/api/playback"
+    },
+    {
+      "source": "/stream-proxy",
+      "destination": "/api/index?__vercel_path=/api/stream-proxy"
+    },
+    {
+      "source": "/ping",
+      "destination": "/api/index?__vercel_path=/api/ping"
+    },
+    {
+      "source": "/((?!api/|playlist\\.m3u|live/|stream-proxy|playback|ping|assistant-chat).*)",
       "destination": "/index.html"
     }
   ]
