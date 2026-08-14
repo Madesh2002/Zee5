@@ -39,6 +39,7 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
 
   // Options for M3U output
   const [streamUrlType, setStreamUrlType] = useState<"full_video_token" | "server_redirect">("full_video_token");
+  const [globalWorldwideMode, setGlobalWorldwideMode] = useState<boolean>(true);
   const [includeTvgLogo, setIncludeTvgLogo] = useState(true);
   const [includeTvgId, setIncludeTvgId] = useState(true);
   const [includeGroupTitle, setIncludeGroupTitle] = useState(true);
@@ -247,16 +248,23 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
 
   const m3uTextOutput = useMemo(() => {
     const selectedItems = items.filter((i) => i.selected);
-    let output = `#EXTM3U x-tvg-url="" name="${playlistTitle}"\n\n`;
+    const modeSuffix = globalWorldwideMode ? " (Worldwide India Proxy)" : "";
+    let output = `#EXTM3U x-tvg-url="" name="${playlistTitle}${modeSuffix}"\n\n`;
 
     const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
 
     selectedItems.forEach((item) => {
       let streamUrl = "";
       if (streamUrlType === "server_redirect") {
-        streamUrl = `${origin}/api/live/${item.id}.m3u8`;
+        streamUrl = globalWorldwideMode
+          ? `${origin}/api/live/${item.id}.m3u8?proxy=1&global=1`
+          : `${origin}/api/live/${item.id}.m3u8`;
       } else {
-        streamUrl = item.video_token || `${origin}/api/live/${item.id}.m3u8`;
+        if (globalWorldwideMode && item.video_token) {
+          streamUrl = `${origin}/api/stream-proxy?url=${encodeURIComponent(item.video_token)}`;
+        } else {
+          streamUrl = item.video_token || (globalWorldwideMode ? `${origin}/api/live/${item.id}.m3u8?proxy=1&global=1` : `${origin}/api/live/${item.id}.m3u8`);
+        }
       }
 
       if (!streamUrl) return;
@@ -283,6 +291,7 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
   }, [
     items,
     streamUrlType,
+    globalWorldwideMode,
     includeTvgLogo,
     includeTvgId,
     includeGroupTitle,
@@ -303,14 +312,14 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${playlistTitle.toLowerCase().replace(/\s+/g, "_")}.m3u`;
+    link.download = `${playlistTitle.toLowerCase().replace(/\s+/g, "_")}${globalWorldwideMode ? "_worldwide_proxy" : ""}.m3u`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  const serverApiUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/playlist.m3u`;
+  const serverApiUrl = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/playlist.m3u${globalWorldwideMode ? "?proxy=1&global=1" : ""}`;
 
   const handleCopyServerUrl = () => {
     navigator.clipboard.writeText(serverApiUrl);
@@ -392,6 +401,42 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
               <span>/api/playlist.m3u</span>
             </button>
           </div>
+        </div>
+
+        {/* Worldwide / Global Mode Toggle Card */}
+        <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-sm">
+              🌐
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white">Worldwide / Global Access Mode (India IP Proxy)</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  globalWorldwideMode
+                    ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                    : "bg-slate-800 text-slate-400 border border-slate-700"
+                }`}>
+                  {globalWorldwideMode ? "🇮🇳 India Proxy Active" : "Standard Direct Mode"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {globalWorldwideMode
+                  ? "Streams route through Indian IP spoofing & segment proxy for seamless playback worldwide outside India."
+                  : "Uses direct ZEE5 Akamai CDN links (ideal for users residing inside India)."}
+              </p>
+            </div>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={globalWorldwideMode}
+              onChange={(e) => setGlobalWorldwideMode(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
         </div>
 
         {/* Batch Extraction Progress Bar */}
@@ -743,6 +788,30 @@ export const PlaylistBuilder: React.FC<PlaylistBuilderProps> = ({
             </div>
 
             <div className="space-y-3 text-xs">
+              {/* Worldwide Indian IP Proxy Toggle */}
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🌐</span>
+                    <span className="font-bold text-white text-xs">Worldwide Access (India IP Proxy)</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={globalWorldwideMode}
+                      onChange={(e) => setGlobalWorldwideMode(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  {globalWorldwideMode
+                    ? "🇮🇳 Appends ?proxy=1&global=1 so international OTT Navigator / VLC players stream smoothly with Indian IP bypass."
+                    : "Standard mode without proxy parameters (direct Akamai CDN links)."}
+                </p>
+              </div>
+
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 mb-1">Stream Link Format in M3U</label>
                 <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 border border-slate-800 rounded-xl">

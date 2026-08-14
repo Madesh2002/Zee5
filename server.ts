@@ -454,13 +454,18 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
         channelObj?.logo ||
         `https://akamaividz.zee5.com/resources/${targetChannelId}/list/270x152/1920x1080list.jpg`;
 
+      const isProxy = req.query.proxy === "1" || req.query.proxy === "true" || req.query.global === "1" || req.query.global === "true" || req.query.india_ip === "1";
+      const proxiedStreamUrl = rawVideoToken ? `${protocol}://${host}/api/stream-proxy?url=${encodeURIComponent(rawVideoToken)}` : hostDomainUrl;
+
       const filteredResponse = {
         id: asset.id || targetChannelId,
         title: extractedTitle,
         image_url: constructedImage,
-        video_token: displayVideoToken,
+        video_token: isProxy ? proxiedStreamUrl : displayVideoToken,
         raw_video_token: rawVideoToken,
-        user_ip_used: activeIp
+        proxied_stream_url: proxiedStreamUrl,
+        user_ip_used: activeIp,
+        is_global_proxy: isProxy
       };
 
       if (
@@ -471,6 +476,9 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
         req.path.endsWith(".m3u8")
       ) {
         if (rawVideoToken) {
+          if (isProxy) {
+            return res.redirect(302, proxiedStreamUrl);
+          }
           return res.redirect(302, rawVideoToken);
         } else {
           return res.status(404).send("#EXTM3U\n# Error: video_token missing for channel");
@@ -866,10 +874,115 @@ function isIptvPlayerOrAutomatedClient(req: express.Request): boolean {
   return false;
 }
 
+// 3. Stream Proxy Endpoint for Worldwide Global Playback using Indian IP
+async function handleStreamProxy(req: express.Request, res: express.Response) {
+  try {
+    const rawTargetUrl = (req.query.url || req.query.u || "") as string;
+    if (!rawTargetUrl) {
+      return res.status(400).send("Error: 'url' query parameter is required.");
+    }
+
+    let targetUrl = decodeURIComponent(rawTargetUrl);
+    if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+      return res.status(400).send("Error: Invalid URL protocol.");
+    }
+
+    const host = req.headers.host || "localhost:3000";
+    const protocol = req.headers["x-forwarded-proto"] || "http";
+    const baseUrl = `${protocol}://${host}`;
+
+    const activeIp = getRotatedIp(currentTokens.userIpAddress);
+    const proxyHeaders: Record<string, string> = {
+      "User-Agent": (req.headers["user-agent"] as string) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Origin": "https://www.zee5.com",
+      "Referer": "https://www.zee5.com/",
+      "Accept": "*/*",
+      "X-Forwarded-For": activeIp,
+      "X-Real-IP": activeIp,
+      "CF-Connecting-IP": activeIp,
+      "X-Client-IP": activeIp
+    };
+
+    if (req.headers.range) {
+      proxyHeaders["Range"] = req.headers.range as string;
+    }
+
+    const upstreamRes = await fetch(targetUrl, {
+      method: req.method === "HEAD" ? "HEAD" : "GET",
+      headers: proxyHeaders,
+      signal: AbortSignal.timeout(12000)
+    });
+
+    res.status(upstreamRes.status);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+
+    const contentType = upstreamRes.headers.get("content-type") || "";
+    const isM3u8 = targetUrl.includes(".m3u8") || contentType.includes("mpegurl") || contentType.includes("application/x-mpegURL") || contentType.includes("vnd.apple.mpegurl");
+
+    if (isM3u8) {
+      const text = await upstreamRes.text();
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8");
+
+      const parsedUrl = new URL(targetUrl);
+      const urlBase = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
+
+      const rewritten = text.split("\n").map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+
+        // Rewrite URI="..." attributes in tags like #EXT-X-MAP:URI="...", #EXT-X-KEY:URI="..."
+        if (trimmed.startsWith("#")) {
+          return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
+            let fullUri = uri;
+            if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
+              if (uri.startsWith("/")) {
+                fullUri = `${parsedUrl.origin}${uri}`;
+              } else {
+                fullUri = `${urlBase}${uri}`;
+              }
+            }
+            return `URI="${baseUrl}/api/stream-proxy?url=${encodeURIComponent(fullUri)}"`;
+          });
+        }
+
+        // Rewrite segment or sub-playlist URL lines
+        let absoluteSegmentUrl = trimmed;
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+          if (trimmed.startsWith("/")) {
+            absoluteSegmentUrl = `${parsedUrl.origin}${trimmed}`;
+          } else {
+            absoluteSegmentUrl = `${urlBase}${trimmed}`;
+          }
+        }
+        return `${baseUrl}/api/stream-proxy?url=${encodeURIComponent(absoluteSegmentUrl)}`;
+      }).join("\n");
+
+      return res.send(rewritten);
+    } else {
+      if (contentType) res.setHeader("Content-Type", contentType);
+      const contentLength = upstreamRes.headers.get("content-length");
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+      const acceptRanges = upstreamRes.headers.get("accept-ranges");
+      if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+      const contentRange = upstreamRes.headers.get("content-range");
+      if (contentRange) res.setHeader("Content-Range", contentRange);
+
+      const arrayBuffer = await upstreamRes.arrayBuffer();
+      return res.send(Buffer.from(arrayBuffer));
+    }
+  } catch (err: any) {
+    return res.status(502).send(`Stream Proxy Error: ${err.message}`);
+  }
+}
+
 // Generate Dedicated OTT Navigator & IPTV Player Portal HTML
-function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", isAuthed: boolean = false, activeKey: string = ""): string {
+function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", isAuthed: boolean = false, activeKey: string = "", defaultGlobalProxy: boolean = false): string {
   const currentKey = activeKey || adminCredentials.password;
-  const playlistUrl = `${baseUrl}/api/playlist.m3u`;
+  const standardPlaylistUrl = `${baseUrl}/api/playlist.m3u`;
+  const globalPlaylistUrl = `${baseUrl}/api/playlist.m3u?proxy=1&global=1`;
+  const playlistUrl = defaultGlobalProxy ? globalPlaylistUrl : standardPlaylistUrl;
   const channelData = loadChannelData();
   const channelsList: any[] = Array.isArray(channelData?.data) ? channelData.data : [];
 
@@ -936,6 +1049,34 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
         </div>
       </div>
 
+      <!-- Worldwide Global India IP Proxy Toggle Switch -->
+      <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-base">
+              🌐
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-white">Worldwide / Global Access Mode (India IP Proxy)</span>
+                <span id="modeBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full ${defaultGlobalProxy ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-slate-800 text-slate-400 border border-slate-700'}">
+                  ${defaultGlobalProxy ? '🇮🇳 India Proxy Active' : 'Standard Direct Mode'}
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Enable this toggle if you are outside India to stream channels worldwide using automated Indian IP rotation & header bypass.
+              </p>
+            </div>
+          </div>
+
+          <!-- Toggle Button -->
+          <label class="relative inline-flex items-center cursor-pointer shrink-0">
+            <input type="checkbox" id="globalProxyToggle" class="sr-only peer" ${defaultGlobalProxy ? 'checked' : ''} onchange="toggleProxyMode(this.checked)">
+            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
+      </div>
+
       <!-- Copyable Playlist URL box -->
       <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -944,20 +1085,20 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
             Your M3U Playlist Feed URL
           </span>
           <div class="flex items-center gap-2">
-            <button onclick="copyToClipboard('${playlistUrl}', this)" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition-all shadow-md shadow-cyan-900/30 flex items-center gap-1.5">
+            <button id="copyBtn" onclick="copyCurrentPlaylistUrl(this)" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition-all shadow-md shadow-cyan-900/30 flex items-center gap-1.5">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
               Copy Playlist URL
             </button>
-            <a href="${playlistUrl}?download=1" download="playlist.m3u" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors border border-slate-700 flex items-center gap-1">
+            <a id="downloadLink" href="${playlistUrl}?download=1" download="playlist.m3u" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors border border-slate-700 flex items-center gap-1">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
               Download .m3u
             </a>
-            <a href="${playlistUrl}?raw=1" target="_blank" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors border border-slate-700">
+            <a id="rawLink" href="${playlistUrl}?raw=1" target="_blank" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors border border-slate-700">
               Raw Text
             </a>
           </div>
         </div>
-        <p class="text-xs font-mono text-cyan-300 break-all select-all bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">${playlistUrl}</p>
+        <p id="playlistUrlText" class="text-xs font-mono text-cyan-300 break-all select-all bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">${playlistUrl}</p>
       </div>
     </section>
 
@@ -987,8 +1128,8 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
       <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
         <div class="w-2.5 h-2.5 rounded-full bg-purple-400"></div>
         <div>
-          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Live Channels</p>
-          <p class="text-xs font-medium text-purple-400">${channelsList.length || 98} Channels</p>
+          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Worldwide Play</p>
+          <p class="text-xs font-medium text-purple-400">Indian IP Spoofing</p>
         </div>
       </div>
     </div>
@@ -1016,7 +1157,7 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
             <li>Open <b>OTT Navigator IPTV</b> on your Android Device or Smart TV.</li>
             <li>Go to <b>Settings</b> <span class="text-slate-400">&rarr;</span> <b>Provider</b> <span class="text-slate-400">&rarr;</span> <b>Add Provider</b>.</li>
             <li>Select <b>Playlist (M3U / M3U8)</b>.</li>
-            <li>Paste this playlist URL: <br><code class="text-[11px] text-cyan-300 bg-slate-900 px-1.5 py-0.5 rounded mt-1 inline-block select-all">${playlistUrl}</code></li>
+            <li>Paste this playlist URL: <br><code id="guideUrlOtt" class="text-[11px] text-cyan-300 bg-slate-900 px-1.5 py-0.5 rounded mt-1 inline-block select-all">${playlistUrl}</code></li>
             <li>Set Auto-Update frequency to <i>2-4 hours</i> and click <b>Apply</b>.</li>
           </ol>
         </div>
@@ -1097,15 +1238,43 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
 
     <!-- Footer -->
     <footer class="text-center text-xs text-slate-500 pt-2 pb-6 space-y-1">
-      <p>Zee5 Live Stream Server &bull; Vercel & Cloud Run Compatible</p>
+      <p>Zee5 Live Stream Server &bull; Vercel & Cloud Run Compatible &bull; Worldwide India IP Proxy Enabled</p>
       <p class="text-[11px] text-slate-600">IPTV players automatically receive the raw .M3U stream feed without browser prompts.</p>
     </footer>
 
   </div>
 
   <script>
-    function copyToClipboard(text, btn) {
-      navigator.clipboard.writeText(text).then(() => {
+    const baseUrl = "${baseUrl}";
+    let currentProxyMode = ${defaultGlobalProxy ? 'true' : 'false'};
+
+    function getActiveUrl() {
+      return currentProxyMode ? (baseUrl + "/api/playlist.m3u?proxy=1&global=1") : (baseUrl + "/api/playlist.m3u");
+    }
+
+    function toggleProxyMode(enabled) {
+      currentProxyMode = enabled;
+      const newUrl = getActiveUrl();
+      document.getElementById('playlistUrlText').textContent = newUrl;
+      const guideOtt = document.getElementById('guideUrlOtt');
+      if (guideOtt) guideOtt.textContent = newUrl;
+
+      document.getElementById('downloadLink').href = newUrl + (newUrl.includes('?') ? '&download=1' : '?download=1');
+      document.getElementById('rawLink').href = newUrl + (newUrl.includes('?') ? '&raw=1' : '?raw=1');
+
+      const badge = document.getElementById('modeBadge');
+      if (enabled) {
+        badge.textContent = '🇮🇳 India Proxy Active';
+        badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800';
+      } else {
+        badge.textContent = 'Standard Direct Mode';
+        badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700';
+      }
+    }
+
+    function copyCurrentPlaylistUrl(btn) {
+      const url = getActiveUrl();
+      navigator.clipboard.writeText(url).then(() => {
         const original = btn.innerHTML;
         btn.innerHTML = '<svg class="w-3.5 h-3.5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Copied URL!';
         btn.classList.add('bg-emerald-600', 'text-white');
@@ -1127,6 +1296,13 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
     const protocol = req.headers["x-forwarded-proto"] || "http";
     const baseUrl = `${protocol}://${host}`;
 
+    const isGlobalProxy =
+      req.query.proxy === "1" ||
+      req.query.proxy === "true" ||
+      req.query.global === "1" ||
+      req.query.global === "true" ||
+      req.query.india_ip === "1";
+
     // If request is from standard web browser (Chrome, Edge, Safari, Firefox) without explicit download or raw request
     const acceptHeader = ((req.headers["accept"] as string) || "").toLowerCase();
     const isExplicitRawOrDownload =
@@ -1138,7 +1314,7 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
       req.query.format === "raw";
 
     if (!isIptvClient && acceptHeader.includes("text/html") && !isExplicitRawOrDownload) {
-      return res.send(generateAdminPlaylistGateHtml(baseUrl, "", true));
+      return res.send(generateAdminPlaylistGateHtml(baseUrl, "", true, "", isGlobalProxy));
     }
 
     // Otherwise, generate and return the authentic raw #EXTM3U playlist for OTT Navigator, TiviMate, VLC, and IPTV players
@@ -1160,7 +1336,7 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
     }
 
     const userAgent = (req.query.user_agent as string) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-    const playlistName = (req.query.name as string) || "Zee5 Live IPTV Playlist";
+    const playlistName = (req.query.name as string) || (isGlobalProxy ? "Zee5 Live IPTV (Global India Proxy)" : "Zee5 Live IPTV Playlist");
 
     let m3uOutput = `#EXTM3U name="${playlistName}" x-tvg-url=""\r\n\r\n`;
 
@@ -1175,7 +1351,9 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
         c.image_url ||
         `https://akamaividz.zee5.com/resources/${cleanId}/list/270x152/1920x1080list.jpg`;
       const genre = c.genre || (c.language ? c.language.toUpperCase() : "General");
-      const redirectUrl = `${baseUrl}/api/live/${cleanId}.m3u8`;
+      const redirectUrl = isGlobalProxy
+        ? `${baseUrl}/api/live/${cleanId}.m3u8?proxy=1&global=1`
+        : `${baseUrl}/api/live/${cleanId}.m3u8`;
 
       m3uOutput += `#EXTINF:-1 tvg-id="${rawId}" tvg-name="${title}" tvg-logo="${logo}" group-title="${genre}",${title}\r\n`;
       m3uOutput += `#EXTVLCOPT:http-user-agent=${userAgent}\r\n`;
@@ -1196,6 +1374,8 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
 }
 
 app.get(["/api/playlist.m3u", "/playlist.m3u", "/api/playlist", "/playlist"], handlePlaylistM3u);
+
+app.all(["/api/stream-proxy", "/stream-proxy", "/api/proxy/stream"], handleStreamProxy);
 
 app.get(["/api/live/:id.m3u8", "/live/:id.m3u8"], (req: express.Request, res: express.Response) => {
   req.query.id = req.params.id;
