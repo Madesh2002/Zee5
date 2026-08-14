@@ -4,7 +4,9 @@ export default async function handler(req: any, res: any) {
   return new Promise<void>((resolve) => {
     try {
       const rawUrl = req.url || "/";
-      const [pathPart, queryPart] = rawUrl.split("?");
+      const qIndex = rawUrl.indexOf("?");
+      const pathPart = qIndex >= 0 ? rawUrl.substring(0, qIndex) : rawUrl;
+      const queryPart = qIndex >= 0 ? rawUrl.substring(qIndex + 1) : "";
 
       let targetPath = "";
 
@@ -28,16 +30,13 @@ export default async function handler(req: any, res: any) {
       }
 
       if (targetPath) {
-        const queryParams = new URLSearchParams();
+        // Clean __vercel_path from the query without destroying nested encoded tokens
+        let cleanQuery = "";
         if (queryPart) {
-          const parsed = new URLSearchParams(queryPart);
-          parsed.delete("__vercel_path");
-          for (const [k, v] of parsed.entries()) {
-            queryParams.append(k, v);
-          }
+          cleanQuery = queryPart.replace(/&?__vercel_path=[^&]*/g, "").replace(/^\?|^&/, "");
         }
-        const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
-        req.url = targetPath.startsWith("/") ? `${targetPath}${qs}` : `/${targetPath}${qs}`;
+        const formattedPath = targetPath.startsWith("/") ? targetPath : `/${targetPath}`;
+        req.url = formattedPath + (cleanQuery ? `?${cleanQuery}` : "");
       }
     } catch (e) {
       console.error("Vercel route normalization note:", e);
@@ -73,3 +72,4 @@ export default async function handler(req: any, res: any) {
     }
   });
 }
+

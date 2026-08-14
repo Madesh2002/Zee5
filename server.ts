@@ -945,14 +945,51 @@ function isIptvPlayerOrAutomatedClient(req: express.Request): boolean {
 // 3. Stream Proxy Endpoint for Worldwide Global Playback using Indian IP
 async function handleStreamProxy(req: express.Request, res: express.Response) {
   try {
-    const rawTargetUrl = (req.query.url || req.query.u || "") as string;
-    if (!rawTargetUrl) {
-      return res.status(400).send("Error: 'url' query parameter is required.");
+    // 1. Robust URL extraction (handles split query parameters like req_id, hdnts, etc.)
+    let targetUrl = "";
+    
+    // Check if full target URL is in originalUrl or url string
+    const rawReqUrl = req.originalUrl || req.url || "";
+    const urlParamMatch = rawReqUrl.match(/[?&](?:url|u)=([^&]+(?:\?.*)?)/i);
+    
+    if (urlParamMatch && urlParamMatch[1]) {
+      try {
+        targetUrl = decodeURIComponent(urlParamMatch[1]);
+      } catch {
+        targetUrl = urlParamMatch[1];
+      }
     }
 
-    let targetUrl = decodeURIComponent(rawTargetUrl);
-    if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-      return res.status(400).send("Error: Invalid URL protocol.");
+    if (!targetUrl && (req.query.url || req.query.u)) {
+      targetUrl = String(req.query.url || req.query.u);
+      try {
+        if (targetUrl.includes("%2F") || targetUrl.includes("%3A")) {
+          targetUrl = decodeURIComponent(targetUrl);
+        }
+      } catch {}
+    }
+
+    // If query has extra tokens that were split by query parsers (e.g. req_id, hdnts), reattach if missing
+    if (targetUrl) {
+      const extraParams: string[] = [];
+      for (const [k, v] of Object.entries(req.query)) {
+        if (k !== "url" && k !== "u" && k !== "__vercel_path" && typeof v === "string") {
+          if (!targetUrl.includes(`${k}=`)) {
+            extraParams.push(`${k}=${encodeURIComponent(v)}`);
+          }
+        }
+      }
+      if (extraParams.length > 0) {
+        const separator = targetUrl.includes("?") ? "&" : "?";
+        targetUrl += `${separator}${extraParams.join("&")}`;
+      }
+    }
+
+    if (!targetUrl || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://"))) {
+      return res.status(400).json({
+        error: "Missing or invalid 'url' query parameter.",
+        received: req.query.url || null
+      });
     }
 
     const host = req.headers.host || "localhost:3000";
@@ -978,7 +1015,7 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
     const upstreamRes = await fetch(targetUrl, {
       method: req.method === "HEAD" ? "HEAD" : "GET",
       headers: proxyHeaders,
-      signal: AbortSignal.timeout(12000)
+      signal: AbortSignal.timeout(8000)
     });
 
     res.status(upstreamRes.status);
@@ -986,15 +1023,29 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "*");
 
+    if (req.method === "HEAD") {
+      return res.end();
+    }
+
     const contentType = upstreamRes.headers.get("content-type") || "";
-    const isM3u8 = targetUrl.includes(".m3u8") || contentType.includes("mpegurl") || contentType.includes("application/x-mpegURL") || contentType.includes("vnd.apple.mpegurl");
+    const isM3u8 =
+      targetUrl.includes(".m3u8") ||
+      contentType.includes("mpegurl") ||
+      contentType.includes("application/x-mpegURL") ||
+      contentType.includes("vnd.apple.mpegurl");
 
     if (isM3u8) {
       const text = await upstreamRes.text();
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8");
 
-      const parsedUrl = new URL(targetUrl);
-      const urlBase = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(targetUrl);
+      } catch {
+        parsedUrl = new URL("https://z5ak-cmaflive.zee5.com");
+      }
+      const pathWithoutFile = parsedUrl.pathname.substring(0, parsedUrl.pathname.lastIndexOf("/") + 1);
+      const urlBase = `${parsedUrl.origin}${pathWithoutFile}`;
 
       const rewritten = text.split("\n").map((line) => {
         const trimmed = line.trim();
@@ -1041,7 +1092,14 @@ async function handleStreamProxy(req: express.Request, res: express.Response) {
       return res.send(Buffer.from(arrayBuffer));
     }
   } catch (err: any) {
-    return res.status(502).send(`Stream Proxy Error: ${err.message}`);
+    if (!res.headersSent) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      return res.status(502).json({
+        error: "Stream Proxy Error",
+        message: err.message || "Failed to reach upstream stream source."
+      });
+    }
+    return res.end();
   }
 }
 
