@@ -491,7 +491,7 @@ export async function fetchPlaybackDetailsSafe(
         isClientFallback: false
       };
     }
-    if (serverRes.data.video_token && !serverRes.data.video_token.includes("/api/live/")) {
+    if (serverRes.data.video_token) {
       return {
         ok: true,
         extracted: serverRes.data as ExtractedPlaybackData,

@@ -443,7 +443,17 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
       const protocol = req.headers["x-forwarded-proto"] || "http";
       const hostDomainUrl = `${protocol}://${host}/api/live/${targetChannelId}.m3u8`;
 
-      const shouldHideToken = req.query.hideToken === "true" || req.body?.hideToken === true || currentTokens.hideRawVideoToken;
+      const shouldHideToken =
+        req.query.hideToken === "true" ||
+        req.query.hide_token === "1" ||
+        req.query.hide_token === "true" ||
+        req.body?.hideToken === true ||
+        (Boolean(currentTokens.hideRawVideoToken) &&
+          req.query.hideToken !== "false" &&
+          req.query.hide_token !== "0" &&
+          req.query.direct !== "1" &&
+          req.query.direct !== "true");
+
       const rawVideoToken = keyOs.video_token || null;
       const displayVideoToken = shouldHideToken ? hostDomainUrl : (rawVideoToken || hostDomainUrl);
 
@@ -464,6 +474,8 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
         image_url: constructedImage,
         video_token: isProxy ? proxiedStreamUrl : displayVideoToken,
         raw_video_token: rawVideoToken,
+        host_domain_url: hostDomainUrl,
+        hide_token_active: shouldHideToken,
         proxied_stream_url: proxiedStreamUrl,
         user_ip_used: activeIp,
         is_global_proxy: isProxy
@@ -1341,8 +1353,16 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
 
     let m3uOutput = `#EXTM3U name="${playlistName}" x-tvg-url=""\r\n\r\n`;
 
-    // Generate stream redirect entries for all channels in < 15ms without slow upstream blocking
-    // When OTT Navigator or TiviMate plays any channel, the player fetches /api/live/:id.m3u8 which resolves live tokens instantly!
+    const isDirectTokenRequested =
+      req.query.direct === "1" ||
+      req.query.direct === "true" ||
+      req.query.token === "raw" ||
+      req.query.token === "direct" ||
+      req.query.hide_token === "0" ||
+      req.query.hideToken === "false";
+
+    // Generate stream entries for all channels
+    // If direct token is requested and available on channel object, use direct URL; otherwise use /api/live/:id.m3u8
     channels.forEach((c: any) => {
       const rawId = (c.id || "").toString().trim();
       const cleanId = rawId.replace(/-\d+$/, "");
@@ -1352,14 +1372,22 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
         c.image_url ||
         `https://akamaividz.zee5.com/resources/${cleanId}/list/270x152/1920x1080list.jpg`;
       const genre = c.genre || (c.language ? c.language.toUpperCase() : "General");
-      const redirectUrl = isGlobalProxy
-        ? `${baseUrl}/api/live/${cleanId}.m3u8?proxy=1&global=1`
-        : `${baseUrl}/api/live/${cleanId}.m3u8`;
+
+      let streamUrl = "";
+      if (isDirectTokenRequested && c.url && (c.url.includes(".m3u8") || c.url.startsWith("http"))) {
+        streamUrl = isGlobalProxy
+          ? `${baseUrl}/api/stream-proxy?url=${encodeURIComponent(c.url)}`
+          : c.url;
+      } else {
+        streamUrl = isGlobalProxy
+          ? `${baseUrl}/api/live/${cleanId}.m3u8?proxy=1&global=1`
+          : `${baseUrl}/api/live/${cleanId}.m3u8`;
+      }
 
       m3uOutput += `#EXTINF:-1 tvg-id="${rawId}" tvg-name="${title}" tvg-logo="${logo}" group-title="${genre}",${title}\r\n`;
       m3uOutput += `#EXTVLCOPT:http-user-agent=${userAgent}\r\n`;
       m3uOutput += `#EXTVLCOPT:http-referrer=https://www.zee5.com/\r\n`;
-      m3uOutput += `${redirectUrl}\r\n\r\n`;
+      m3uOutput += `${streamUrl}\r\n\r\n`;
     });
 
     res.setHeader("Content-Type", "application/x-mpegurl; charset=utf-8");
