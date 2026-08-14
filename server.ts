@@ -573,7 +573,7 @@ async function performStreamPing(rawChannelId: string, customUrl?: string) {
   try {
     let targetStreamUrl = customUrl ? customUrl.trim() : "";
 
-    if (!targetStreamUrl || targetStreamUrl.includes("aasthaott.akamaized.net") || targetStreamUrl.startsWith("/api/live")) {
+    if (!targetStreamUrl || !targetStreamUrl.includes("hdnts=") || targetStreamUrl.includes("aasthaott.akamaized.net") || targetStreamUrl.startsWith("/api/live")) {
       const jsonData = loadChannelData();
       const channelsList = Array.isArray(jsonData?.data) ? jsonData.data : [];
       const channelObj = channelsList.find((c: any) =>

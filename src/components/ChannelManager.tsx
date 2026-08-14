@@ -22,7 +22,7 @@ import {
   Info,
   X
 } from "lucide-react";
-import { safeFetchJson } from "../utils/apiClient";
+import { safeFetchJson, pingChannelStreamSafe } from "../utils/apiClient";
 
 interface ChannelManagerProps {
   channels: Channel[];
@@ -192,27 +192,8 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
     setPingingMap((prev) => ({ ...prev, [chId]: true }));
 
     try {
-      const params = new URLSearchParams({ id: chId });
-      if (channel.url && !channel.url.includes("aasthaott.akamaized.net")) {
-        params.append("url", channel.url);
-      }
-      const res = await safeFetchJson<ChannelPingResult>(`/api/channels/ping?${params.toString()}`);
-      if (res.data) {
-        setPingResults((prev) => ({ ...prev, [chId]: res.data! }));
-      } else {
-        setPingResults((prev) => ({
-          ...prev,
-          [chId]: {
-            id: chId,
-            active: false,
-            status: res.status,
-            statusText: "Stream Inactive",
-            latencyMs: 0,
-            error: res.error || "Failed to ping stream",
-            checkedAt: new Date().toISOString()
-          }
-        }));
-      }
+      const pingResult = await pingChannelStreamSafe(channel, null, channels);
+      setPingResults((prev) => ({ ...prev, [chId]: pingResult }));
     } catch (err: any) {
       setPingResults((prev) => ({
         ...prev,
@@ -260,26 +241,8 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
 
       const promises = chunk.map(async (c) => {
         try {
-          const params = new URLSearchParams({ id: c.id });
-          if (c.url && !c.url.includes("aasthaott.akamaized.net")) {
-            params.append("url", c.url);
-          }
-          const res = await safeFetchJson<ChannelPingResult>(`/api/channels/ping?${params.toString()}`);
-          if (res.data) {
-            return { id: c.id, result: res.data };
-          }
-          return {
-            id: c.id,
-            result: {
-              id: c.id,
-              active: false,
-              status: res.status,
-              statusText: "Inactive",
-              latencyMs: 0,
-              error: res.error,
-              checkedAt: new Date().toISOString()
-            } as ChannelPingResult
-          };
+          const res = await pingChannelStreamSafe(c, null, channels);
+          return { id: c.id, result: res };
         } catch (err: any) {
           return {
             id: c.id,
@@ -297,6 +260,7 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
       });
 
       const chunkResults = await Promise.allSettled(promises);
+
 
       setPingResults((prev) => {
         const next = { ...prev };

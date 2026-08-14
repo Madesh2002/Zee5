@@ -4,7 +4,7 @@ export default function handler(req: any, res: any) {
   try {
     const rawUrl = req.url || "/";
     const [pathPart, queryPart] = rawUrl.split("?");
-    const queryString = queryPart ? `?${queryPart}` : "";
+    const queryString = queryPart ? `?${queryPart}` : (req.query ? `?${new URLSearchParams(req.query).toString()}` : "");
 
     // If x-matched-path is provided by Vercel routing
     const matchedPath = req.headers?.["x-matched-path"];
@@ -21,7 +21,7 @@ export default function handler(req: any, res: any) {
       } else if (req.query?.slug) {
         const slug = Array.isArray(req.query.slug) ? req.query.slug.join("/") : req.query.slug;
         req.url = `/api/${slug}${queryString}`;
-      } else if (req.query?.id && !pathPart.includes("playback") && !pathPart.includes("live")) {
+      } else if (req.query?.id && pathPart.includes("playback")) {
         req.url = `/api/playback${queryString}`;
       }
     }
@@ -31,4 +31,5 @@ export default function handler(req: any, res: any) {
 
   return app(req, res);
 }
+
 

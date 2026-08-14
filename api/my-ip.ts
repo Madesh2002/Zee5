@@ -3,14 +3,6 @@ import app from "../server";
 export default function handler(req: any, res: any) {
   const [pathPart, queryPart] = (req.url || "").split("?");
   const queryString = queryPart ? `?${queryPart}` : (req.query ? `?${new URLSearchParams(req.query).toString()}` : "");
-  
-  if (pathPart.includes("/sync")) {
-    req.url = `/api/channels/sync${queryString}`;
-  } else if (pathPart.includes("/ping")) {
-    req.url = `/api/channels/ping${queryString}`;
-  } else {
-    req.url = `/api/channels${queryString}`;
-  }
+  req.url = `/api/my-ip${queryString}`;
   return app(req, res);
 }
-

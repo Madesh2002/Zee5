@@ -542,3 +542,69 @@ export async function fetchPlaybackDetailsSafe(
   };
 }
 
+/**
+ * Verifies stream health for a channel. Tries /api/channels/ping first,
+ * and if that encounters a serverless invocation timeout or error,
+ * seamlessly falls back to client-assisted stream verification.
+ */
+export async function pingChannelStreamSafe(
+  channel: Channel,
+  tokens?: SessionTokens | null,
+  channels?: Channel[]
+): Promise<ChannelPingResult> {
+  const startTime = Date.now();
+  const chId = channel.id;
+  const checkedAt = new Date().toISOString();
+
+  try {
+    const params = new URLSearchParams({ id: chId });
+    if (channel.url && !channel.url.includes("aasthaott.akamaized.net")) {
+      params.append("url", channel.url);
+    }
+    
+    // 1. Try server endpoint /api/channels/ping
+    const res = await safeFetchJson<ChannelPingResult>(`/api/channels/ping?${params.toString()}`);
+    if (res.ok && res.data && typeof res.data.active === "boolean") {
+      return res.data;
+    }
+  } catch {}
+
+  // 2. Client-assisted verification fallback
+  try {
+    const playbackRes = await fetchPlaybackDetailsSafe(chId, tokens, channels);
+    const latency = Date.now() - startTime;
+    if (playbackRes.ok && playbackRes.extracted?.video_token) {
+      return {
+        id: chId,
+        active: true,
+        status: 200,
+        statusText: "200 OK Active",
+        latencyMs: latency,
+        streamUrl: playbackRes.extracted.video_token,
+        checkedAt
+      };
+    }
+  } catch (err: any) {
+    return {
+      id: chId,
+      active: false,
+      status: 0,
+      statusText: "Verification Failed",
+      latencyMs: Date.now() - startTime,
+      error: err.message,
+      checkedAt
+    };
+  }
+
+  return {
+    id: chId,
+    active: false,
+    status: 503,
+    statusText: "Stream Offline",
+    latencyMs: Date.now() - startTime,
+    error: "Stream verification unavailable",
+    checkedAt
+  };
+}
+
+
