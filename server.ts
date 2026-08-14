@@ -18,6 +18,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// Lazy loader middleware for serverless runtime (e.g. Vercel)
+app.use(async (req, res, next) => {
+  try {
+    if (!lastTokenSyncTime) {
+      await fetchTokensFromRemote(DEFAULT_NPOINT_API).catch(() => {});
+    }
+    if (cachedChannelData.data.length === 0) {
+      await fetchChannelsFromRemote(DEFAULT_NPOINT_CHANNELS_API).catch(() => {});
+    }
+  } catch {}
+  next();
+});
+
 // In-memory token & IP defaults (can be updated dynamically via UI)
 let currentTokens = {
   sessionDeviceId: "27dd341d-035b-491f-be43-636a7ee2ee91",
@@ -393,6 +406,14 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
 
   try {
     let result = await fetchSinglePlayback(targetChannelId);
+
+    // If initial attempt failed or returned no video token, attempt dynamic remote token refresh and retry
+    if (!result.apiData?.keyOsDetails?.video_token || result.upstreamRes.status === 401 || result.upstreamRes.status === 403) {
+      const syncRes = await fetchTokensFromRemote(DEFAULT_NPOINT_API);
+      if (syncRes.success) {
+        result = await fetchSinglePlayback(targetChannelId);
+      }
+    }
 
     if (!result.apiData?.keyOsDetails?.video_token && rawChannelId !== targetChannelId) {
       const secondaryResult = await fetchSinglePlayback(rawChannelId);

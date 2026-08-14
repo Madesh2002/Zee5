@@ -338,10 +338,26 @@ export async function fetchPlaybackDetailsSafe(
     return { ok: false, extracted: null, fullResponse: null, error: "Channel ID is empty." };
   }
 
-  // 1. Try server endpoint
-  const serverRes = await safeFetchJson<any>(
+  // 1. Try server endpoint GET /api/playback
+  let serverRes = await safeFetchJson<any>(
     `/api/playback?id=${encodeURIComponent(cleanId)}&format=full`
   );
+
+  // 1b. If not ok, try GET /playback (in case of path rewrites)
+  if (!serverRes.ok || !serverRes.data) {
+    serverRes = await safeFetchJson<any>(
+      `/playback?id=${encodeURIComponent(cleanId)}&format=full`
+    );
+  }
+
+  // 1c. If still not ok, try POST /api/playback
+  if (!serverRes.ok || !serverRes.data) {
+    serverRes = await safeFetchJson<any>("/api/playback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: cleanId, format: "full" })
+    });
+  }
 
   if (serverRes.ok && serverRes.data) {
     if (serverRes.data.extracted) {
