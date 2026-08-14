@@ -13,6 +13,8 @@ import {
   fetchChannelsSafe,
   fetchTokensSafe,
   fetchPlaybackDetailsSafe,
+  syncTokensFromRemoteApi,
+  syncChannelsFromRemoteApi,
   getStoredAdminSession,
   clearAdminSession
 } from "./utils/apiClient";
@@ -171,20 +173,9 @@ export default function App() {
 
   const handleSyncTokens = async (apiUrl?: string): Promise<boolean> => {
     try {
-      const res = await safeFetchJson<{ tokens?: SessionTokens; lastTokenSyncTime?: string; tokenSyncSource?: string }>(
-        "/api/tokens/sync",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiUrl })
-        }
-      );
-      if (res.ok && res.data?.tokens) {
-        setTokens({
-          ...res.data.tokens,
-          lastTokenSyncTime: res.data.lastTokenSyncTime,
-          tokenSyncSource: res.data.tokenSyncSource
-        });
+      const res = await syncTokensFromRemoteApi(apiUrl);
+      if (res.success && res.tokens) {
+        setTokens(res.tokens);
         return true;
       }
       return false;
@@ -196,20 +187,13 @@ export default function App() {
 
   const handleSyncChannels = async (apiUrl?: string): Promise<{ success: boolean; count?: number; error?: string }> => {
     try {
-      const res = await safeFetchJson<{ success?: boolean; channels?: Channel[]; error?: string }>(
-        "/api/channels/sync",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiUrl })
-        }
-      );
-      if (res.ok && res.data?.channels) {
-        const normalized = deduplicateChannels(res.data.channels);
+      const res = await syncChannelsFromRemoteApi(apiUrl);
+      if (res.success && res.channels) {
+        const normalized = deduplicateChannels(res.channels);
         setChannels(normalized);
         return { success: true, count: normalized.length };
       } else {
-        return { success: false, error: res.data?.error || res.error || "Failed to sync channel list." };
+        return { success: false, error: res.error || "Failed to sync channel list." };
       }
     } catch (err: any) {
       console.error("Error syncing channels:", err);

@@ -341,18 +341,25 @@ export const ChannelManager: React.FC<ChannelManagerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <input
             type="text"
             value={remoteApiUrl}
             onChange={(e) => setRemoteApiUrl(e.target.value)}
-            placeholder="https://api.npoint.io/..."
+            placeholder="https://api.npoint.io/89cb8fd1d5c1cb6cf289"
             className="flex-1 sm:w-72 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-sky-500"
           />
           <button
+            type="button"
+            onClick={() => setRemoteApiUrl("https://api.npoint.io/89cb8fd1d5c1cb6cf289")}
+            className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-900 border border-slate-700 rounded-lg shrink-0 transition-colors"
+          >
+            Default npoint
+          </button>
+          <button
             onClick={handleRemoteSync}
             disabled={isSyncingRemote || !remoteApiUrl.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-semibold rounded-lg shadow transition-all shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-semibold rounded-lg shadow transition-all shrink-0 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncingRemote ? "animate-spin" : ""}`} />
             <span>{isSyncingRemote ? "Syncing..." : "Sync API"}</span>

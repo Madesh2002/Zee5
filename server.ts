@@ -85,27 +85,48 @@ let channelSyncSource: string = DEFAULT_NPOINT_CHANNELS_API;
 // Helper to fetch tokens from dynamic npoint endpoint
 async function fetchTokensFromRemote(url = DEFAULT_NPOINT_API) {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    let cleanUrl = (url || DEFAULT_NPOINT_API).trim();
+    if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
+    
+    // Auto-correct common truncated npoint IDs
+    if (cleanUrl === "https://api.npoint.io/93c975444d3026f323") {
+      cleanUrl = "https://api.npoint.io/93c975444d3026f32395";
     }
-    const data = (await res.json()) as any;
-    const xDdToken = data.xDdToken || data.x_dd_token || data["x-dd-token"];
-    const xAccessToken = data.xAccessToken || data.x_access_token || data["x-access-token"];
-    const sessionDeviceId = data.sessionDeviceId || data.session_device_id || data.deviceId || data["device_id"];
 
-    if (xDdToken) currentTokens.xDdToken = xDdToken.trim();
-    if (xAccessToken) currentTokens.xAccessToken = xAccessToken.trim();
-    if (sessionDeviceId) currentTokens.sessionDeviceId = sessionDeviceId.trim();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(cleanUrl, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`Remote API returned HTTP ${res.status} ${res.statusText}`);
+    }
+
+    const json = (await res.json()) as any;
+    const data = (json && typeof json === "object" && (json.tokens || json.data || json)) || {};
+
+    const xDdToken = data.xDdToken || data.x_dd_token || data["x-dd-token"] || data.guest_token;
+    const xAccessToken = data.xAccessToken || data.x_access_token || data["x-access-token"] || data.access_token || data.token;
+    const sessionDeviceId = data.sessionDeviceId || data.session_device_id || data.deviceId || data["device_id"];
+    const userIpAddress = data.userIpAddress || data.user_ip_address || data.ip;
+
+    if (xDdToken) currentTokens.xDdToken = String(xDdToken).trim();
+    if (xAccessToken) currentTokens.xAccessToken = String(xAccessToken).trim();
+    if (sessionDeviceId) currentTokens.sessionDeviceId = String(sessionDeviceId).trim();
+    if (userIpAddress) currentTokens.userIpAddress = String(userIpAddress).trim();
 
     lastTokenSyncTime = new Date().toISOString();
-    tokenSyncSource = url;
+    tokenSyncSource = cleanUrl;
     return { success: true, tokens: currentTokens, lastTokenSyncTime, tokenSyncSource };
   } catch (err: any) {
-    return { success: false, error: err.message, tokens: currentTokens };
+    const errorMsg = err.name === "AbortError" ? "Token Sync Timeout (8s)" : (err.message || "Failed to fetch tokens from remote API");
+    return { success: false, error: errorMsg, tokens: currentTokens };
   }
 }
 
@@ -119,13 +140,29 @@ let cachedChannelData: { title?: string; developers?: string; data: any[] } = {
 // Helper to fetch channels from dynamic npoint endpoint directly
 async function fetchChannelsFromRemote(url = DEFAULT_NPOINT_CHANNELS_API) {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    let cleanUrl = (url || DEFAULT_NPOINT_CHANNELS_API).trim();
+    if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
+
+    // Auto-correct common truncated npoint IDs
+    if (cleanUrl === "https://api.npoint.io/89cb8fd1d5c1cb6cf2") {
+      cleanUrl = "https://api.npoint.io/89cb8fd1d5c1cb6cf289";
     }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(cleanUrl, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`Remote Channels API returned HTTP ${res.status} ${res.statusText}`);
+    }
+
     const json = (await res.json()) as any;
     let channelList: any[] = [];
 
@@ -133,6 +170,15 @@ async function fetchChannelsFromRemote(url = DEFAULT_NPOINT_CHANNELS_API) {
       channelList = json;
     } else if (json && Array.isArray(json.data)) {
       channelList = json.data;
+    } else if (json && Array.isArray(json.channels)) {
+      channelList = json.channels;
+    } else if (json && typeof json === "object") {
+      const foundArray = Object.values(json).find((v) => Array.isArray(v));
+      if (foundArray && Array.isArray(foundArray)) {
+        channelList = foundArray;
+      } else {
+        throw new Error("Invalid response format. Expected JSON array or object containing 'data' array.");
+      }
     } else {
       throw new Error("Invalid response format. Expected JSON array or object containing 'data' array.");
     }
@@ -147,7 +193,7 @@ async function fetchChannelsFromRemote(url = DEFAULT_NPOINT_CHANNELS_API) {
     };
 
     lastChannelSyncTime = new Date().toISOString();
-    channelSyncSource = url;
+    channelSyncSource = cleanUrl;
     return {
       success: true,
       channels: cachedChannelData.data,
@@ -158,7 +204,8 @@ async function fetchChannelsFromRemote(url = DEFAULT_NPOINT_CHANNELS_API) {
       developers: cachedChannelData.developers
     };
   } catch (err: any) {
-    return { success: false, error: err.message, channels: cachedChannelData.data };
+    const errorMsg = err.name === "AbortError" ? "Channels Sync Timeout (8s)" : (err.message || "Failed to fetch channels from remote API");
+    return { success: false, error: errorMsg, channels: cachedChannelData.data };
   }
 }
 
@@ -205,12 +252,16 @@ app.post(["/api/channels", "/channels"], (req, res) => {
 
 // 2b. POST /api/channels/sync & /channels/sync
 app.post(["/api/channels/sync", "/channels/sync"], async (req, res) => {
-  const targetUrl = (req.body?.apiUrl || DEFAULT_NPOINT_CHANNELS_API).trim();
-  const result = await fetchChannelsFromRemote(targetUrl);
-  if (result.success) {
+  try {
+    const rawUrl = (req.body?.apiUrl || req.query?.apiUrl || DEFAULT_NPOINT_CHANNELS_API).toString().trim();
+    const result = await fetchChannelsFromRemote(rawUrl);
     return res.json(result);
-  } else {
-    return res.status(502).json(result);
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      error: err.message || "Failed to sync channel list.",
+      channels: cachedChannelData.data
+    });
   }
 });
 
@@ -300,12 +351,16 @@ app.post(["/api/tokens", "/tokens"], (req, res) => {
 });
 
 app.post(["/api/tokens/sync", "/tokens/sync"], async (req, res) => {
-  const targetUrl = (req.body?.apiUrl || DEFAULT_NPOINT_API).trim();
-  const result = await fetchTokensFromRemote(targetUrl);
-  if (result.success) {
+  try {
+    const targetUrl = (req.body?.apiUrl || req.query?.apiUrl || DEFAULT_NPOINT_API).toString().trim();
+    const result = await fetchTokensFromRemote(targetUrl);
     return res.json(result);
-  } else {
-    return res.status(502).json(result);
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      error: err.message || "Failed to sync tokens from remote API.",
+      tokens: currentTokens
+    });
   }
 });
 

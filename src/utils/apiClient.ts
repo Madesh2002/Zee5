@@ -279,6 +279,217 @@ export async function fetchChannelsSafe(): Promise<Channel[]> {
 }
 
 /**
+ * Robust Dynamic Token Synchronizer with Server + Direct Client Fallback
+ */
+export async function syncTokensFromRemoteApi(
+  rawUrl?: string
+): Promise<{ success: boolean; tokens?: SessionTokens; error?: string; source?: string }> {
+  let targetUrl = (rawUrl || DEFAULT_NPOINT_API).trim();
+  if (targetUrl.endsWith("/")) targetUrl = targetUrl.slice(0, -1);
+
+  if (targetUrl === "https://api.npoint.io/93c975444d3026f323") {
+    targetUrl = "https://api.npoint.io/93c975444d3026f32395";
+  }
+
+  // 1. Try server-side sync endpoint first
+  try {
+    const serverRes = await safeFetchJson<{
+      success?: boolean;
+      tokens?: SessionTokens;
+      error?: string;
+      lastTokenSyncTime?: string;
+      tokenSyncSource?: string;
+    }>("/api/tokens/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiUrl: targetUrl })
+    });
+
+    if (serverRes.ok && serverRes.data && serverRes.data.success && serverRes.data.tokens) {
+      const synchedTokens: SessionTokens = {
+        ...serverRes.data.tokens,
+        lastTokenSyncTime: serverRes.data.lastTokenSyncTime || new Date().toISOString(),
+        tokenSyncSource: serverRes.data.tokenSyncSource || targetUrl
+      };
+      try {
+        localStorage.setItem(TOKENS_STORAGE_KEY, JSON.stringify(synchedTokens));
+      } catch {}
+      return { success: true, tokens: synchedTokens, source: targetUrl };
+    }
+  } catch (e) {
+    console.warn("Server-side token sync attempt failed, proceeding to client direct fetch:", e);
+  }
+
+  // 2. Direct browser fetch fallback (bypasses serverless timeouts / Vercel limits)
+  try {
+    const directRes = await fetch(targetUrl, {
+      headers: { Accept: "application/json" }
+    });
+
+    if (!directRes.ok) {
+      throw new Error(`Remote API returned HTTP ${directRes.status} ${directRes.statusText}`);
+    }
+
+    const json = await directRes.json();
+    const data = (json && typeof json === "object" && (json.tokens || json.data || json)) || {};
+
+    const xDdToken = data.xDdToken || data.x_dd_token || data["x-dd-token"] || data.guest_token;
+    const xAccessToken = data.xAccessToken || data.x_access_token || data["x-access-token"] || data.access_token || data.token;
+    const sessionDeviceId = data.sessionDeviceId || data.session_device_id || data.deviceId || data["device_id"];
+    const userIpAddress = data.userIpAddress || data.user_ip_address || data.ip;
+
+    if (!xDdToken && !xAccessToken && !sessionDeviceId) {
+      throw new Error("No recognized token properties (sessionDeviceId, xAccessToken, xDdToken) found in remote JSON response.");
+    }
+
+    const freshTokens: SessionTokens = {
+      sessionDeviceId: String(sessionDeviceId || "").trim() || "27dd341d-035b-491f-be43-636a7ee2ee91",
+      xAccessToken: String(xAccessToken || "").trim(),
+      xDdToken: String(xDdToken || "").trim(),
+      userIpAddress: userIpAddress ? String(userIpAddress).trim() : undefined,
+      autoRotateIp: true,
+      lastTokenSyncTime: new Date().toISOString(),
+      tokenSyncSource: targetUrl
+    };
+
+    try {
+      localStorage.setItem(TOKENS_STORAGE_KEY, JSON.stringify(freshTokens));
+    } catch {}
+
+    // Post updated tokens to server in background
+    safeFetchJson("/api/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(freshTokens)
+    }).catch(() => {});
+
+    return { success: true, tokens: freshTokens, source: targetUrl };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || "Failed to fetch tokens from remote API. Verify endpoint format and accessibility."
+    };
+  }
+}
+
+/**
+ * Robust Dynamic Channel Synchronizer with Server + Direct Client Fallback
+ */
+export async function syncChannelsFromRemoteApi(
+  rawUrl?: string
+): Promise<{ success: boolean; channels?: Channel[]; count?: number; error?: string; source?: string }> {
+  let targetUrl = (rawUrl || DEFAULT_NPOINT_CHANNELS_API).trim();
+  if (targetUrl.endsWith("/")) targetUrl = targetUrl.slice(0, -1);
+
+  // Auto-correct common truncated npoint IDs
+  if (targetUrl === "https://api.npoint.io/89cb8fd1d5c1cb6cf2") {
+    targetUrl = "https://api.npoint.io/89cb8fd1d5c1cb6cf289";
+  }
+
+  // 1. Try server endpoint
+  try {
+    const serverRes = await safeFetchJson<{
+      success?: boolean;
+      channels?: Channel[];
+      count?: number;
+      error?: string;
+      channelSyncSource?: string;
+    }>("/api/channels/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiUrl: targetUrl })
+    });
+
+    if (serverRes.ok && serverRes.data && serverRes.data.success && Array.isArray(serverRes.data.channels) && serverRes.data.channels.length > 0) {
+      const channels = serverRes.data.channels.map((c: any) => ({
+        ...c,
+        title: c.title || c.name || c.id
+      }));
+      try {
+        localStorage.setItem(CHANNELS_STORAGE_KEY, JSON.stringify({ data: channels }));
+      } catch {}
+      return { success: true, channels, count: channels.length, source: targetUrl };
+    }
+  } catch (e) {
+    console.warn("Server-side channel sync attempt failed, proceeding to direct client fetch:", e);
+  }
+
+  // 2. Direct browser fetch fallback
+  try {
+    const directRes = await fetch(targetUrl, {
+      headers: { Accept: "application/json" }
+    });
+
+    if (!directRes.ok) {
+      if (directRes.status === 404 && targetUrl.includes("89cb8fd1d5c1cb6cf2") && !targetUrl.endsWith("89")) {
+        // Retry with corrected suffix
+        const retryRes = await fetch("https://api.npoint.io/89cb8fd1d5c1cb6cf289", { headers: { Accept: "application/json" } });
+        if (retryRes.ok) {
+          const json = await retryRes.json();
+          const list = Array.isArray(json) ? json : (json?.data || json?.channels || []);
+          if (Array.isArray(list) && list.length > 0) {
+            const mapped = list.map((c: any) => ({ ...c, title: c.title || c.name || c.id }));
+            try {
+              localStorage.setItem(CHANNELS_STORAGE_KEY, JSON.stringify({ data: mapped }));
+            } catch {}
+            safeFetchJson("/api/channels", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data: mapped })
+            }).catch(() => {});
+            return { success: true, channels: mapped, count: mapped.length, source: "https://api.npoint.io/89cb8fd1d5c1cb6cf289" };
+          }
+        }
+      }
+      throw new Error(`Remote Channels API returned HTTP ${directRes.status} ${directRes.statusText}`);
+    }
+
+    const json = await directRes.json();
+    let channelList: any[] = [];
+
+    if (Array.isArray(json)) {
+      channelList = json;
+    } else if (json && Array.isArray(json.data)) {
+      channelList = json.data;
+    } else if (json && Array.isArray(json.channels)) {
+      channelList = json.channels;
+    } else if (json && typeof json === "object") {
+      const foundArr = Object.values(json).find((v) => Array.isArray(v));
+      if (foundArr && Array.isArray(foundArr)) {
+        channelList = foundArr;
+      }
+    }
+
+    if (channelList.length === 0) {
+      throw new Error("No channels array found in remote JSON response (expected { data: [ ... ] } or [ ... ])");
+    }
+
+    const channels: Channel[] = channelList.map((c: any) => ({
+      ...c,
+      title: c.title || c.name || c.id
+    }));
+
+    try {
+      localStorage.setItem(CHANNELS_STORAGE_KEY, JSON.stringify({ data: channels }));
+    } catch {}
+
+    // Post to server cache in background
+    safeFetchJson("/api/channels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: channels })
+    }).catch(() => {});
+
+    return { success: true, channels, count: channels.length, source: targetUrl };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || "Failed to fetch channels from remote API endpoint."
+    };
+  }
+}
+
+/**
  * Fetch session tokens with remote fallback
  */
 export async function fetchTokensSafe(): Promise<SessionTokens> {
