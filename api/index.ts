@@ -11,7 +11,7 @@ export default function handler(req: any, res: any) {
     if (matchedPath && typeof matchedPath === "string" && matchedPath !== "/api" && matchedPath !== "/api/index") {
       req.url = matchedPath + queryString;
     } else if (pathPart === "/api" || pathPart === "/" || pathPart === "/api/index") {
-      // If path was collapsed to /api, check if route matches header exists
+      // If path was collapsed to /api, check route matches header
       const routeMatches = req.headers?.["x-now-route-matches"];
       if (routeMatches && typeof routeMatches === "string") {
         const match = routeMatches.match(/1=([^&]+)/);
@@ -31,5 +31,3 @@ export default function handler(req: any, res: any) {
 
   return app(req, res);
 }
-
-
