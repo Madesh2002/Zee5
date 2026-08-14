@@ -511,6 +511,18 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
         isFallback: true
       };
 
+      if (
+        req.query.redirect === "true" ||
+        req.query.stream === "true" ||
+        req.query.mode === "stream" ||
+        req.query.mode === "redirect" ||
+        req.path.endsWith(".m3u8")
+      ) {
+        if (fallbackUrl && !fallbackUrl.startsWith(hostDomainUrl)) {
+          return res.redirect(302, fallbackUrl);
+        }
+      }
+
       if (req.query.format === "full" || req.body?.format === "full") {
         return res.json({
           status: "partial_fallback",
@@ -536,6 +548,18 @@ async function handlePlaybackExtraction(req: express.Request, res: express.Respo
     const fallbackTitle = channelObj?.title || channelObj?.name || targetChannelId;
     const fallbackImage = channelObj?.logo || `https://akamaividz.zee5.com/resources/${targetChannelId}/list/270x152/1920x1080list.jpg`;
     const fallbackUrl = (channelObj?.url && !channelObj.url.includes("aasthaott.akamaized.net")) ? channelObj.url : hostDomainUrl;
+
+    if (
+      req.query.redirect === "true" ||
+      req.query.stream === "true" ||
+      req.query.mode === "stream" ||
+      req.query.mode === "redirect" ||
+      req.path.endsWith(".m3u8")
+    ) {
+      if (fallbackUrl && !fallbackUrl.startsWith(hostDomainUrl)) {
+        return res.redirect(302, fallbackUrl);
+      }
+    }
 
     const fallbackExtracted = {
       id: targetChannelId,
@@ -842,18 +866,19 @@ function isIptvPlayerOrAutomatedClient(req: express.Request): boolean {
   return false;
 }
 
-// Generate Admin Login & IPTV Player Gate HTML
+// Generate Dedicated OTT Navigator & IPTV Player Portal HTML
 function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", isAuthed: boolean = false, activeKey: string = ""): string {
   const currentKey = activeKey || adminCredentials.password;
-  const m3uDirectUrl = `${baseUrl}/api/playlist.m3u?key=${encodeURIComponent(currentKey)}`;
-  const m3uRedirectUrl = `${baseUrl}/api/playlist.m3u?mode=redirect&key=${encodeURIComponent(currentKey)}`;
+  const playlistUrl = `${baseUrl}/api/playlist.m3u`;
+  const channelData = loadChannelData();
+  const channelsList: any[] = Array.isArray(channelData?.data) ? channelData.data : [];
 
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Direct IPTV Server Feed & Gatekeeper — Zee5 Stream Control</title>
+  <title>Zee5 Live IPTV Feed & OTT Navigator Setup</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -863,37 +888,78 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
     code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-start p-4 sm:p-6 lg:p-10 selection:bg-cyan-500 selection:text-white">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-start p-4 sm:p-6 lg:p-8 selection:bg-cyan-500 selection:text-white">
 
   <!-- Background decorative glows -->
   <div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
-    <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-gradient-to-br from-cyan-600/15 via-blue-600/10 to-transparent blur-3xl rounded-full"></div>
+    <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-gradient-to-br from-cyan-600/20 via-blue-600/10 to-transparent blur-3xl rounded-full"></div>
     <div class="absolute bottom-10 right-10 w-96 h-96 bg-purple-600/10 blur-3xl rounded-full"></div>
   </div>
 
   <div class="relative z-10 w-full max-w-4xl space-y-6">
     
     <!-- Top Header & Branding -->
-    <header class="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 shadow-2xl backdrop-blur-xl">
+    <header class="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-xl">
       <div class="flex items-center gap-3.5">
         <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 text-white font-black text-xl">
           Z5
         </div>
         <div>
           <div class="flex items-center gap-2">
-            <h1 class="text-xl font-bold tracking-tight text-white">Zee5 Stream Control</h1>
-            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-800/60">IPTV Feed Gate</span>
+            <h1 class="text-xl font-bold tracking-tight text-white">Zee5 Live IPTV Feed</h1>
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-cyan-950/90 text-cyan-400 border border-cyan-800/80">OTT Navigator Ready</span>
           </div>
-          <p class="text-xs text-slate-400">Direct M3U8 CMAF Stream Server for OTT Navigator & TiviMate</p>
+          <p class="text-xs text-slate-400">Direct M3U8 Live Stream Server for OTT Navigator, TiviMate & VLC</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <a href="/" class="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/60 flex items-center gap-1.5">
+        <a href="/" class="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/60 flex items-center gap-1.5 shadow-sm">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           Web Dashboard
         </a>
       </div>
     </header>
+
+    <!-- Prominent Hero Notice asking user to add into OTT Navigator -->
+    <section class="p-6 rounded-2xl bg-gradient-to-r from-cyan-950/80 via-slate-900/90 to-blue-950/80 border border-cyan-800/50 shadow-2xl space-y-4">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center shrink-0 mt-0.5 shadow-lg shadow-cyan-950/50">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+        </div>
+        <div class="space-y-1">
+          <h2 class="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            Add this Playlist into OTT Navigator to Watch Live Channels
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            This URL delivers the live raw M3U stream feed. Copy the playlist URL below and paste it into <span class="text-cyan-400 font-semibold">OTT Navigator</span>, <span class="text-cyan-400 font-semibold">TiviMate</span>, or <span class="text-cyan-400 font-semibold">VLC Player</span> to stream all 98+ Zee5 HD channels in real time.
+          </p>
+        </div>
+      </div>
+
+      <!-- Copyable Playlist URL box -->
+      <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <span class="text-xs font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+            Your M3U Playlist Feed URL
+          </span>
+          <div class="flex items-center gap-2">
+            <button onclick="copyToClipboard('${playlistUrl}', this)" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition-all shadow-md shadow-cyan-900/30 flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+              Copy Playlist URL
+            </button>
+            <a href="${playlistUrl}?download=1" download="playlist.m3u" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors border border-slate-700 flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+              Download .m3u
+            </a>
+            <a href="${playlistUrl}?raw=1" target="_blank" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors border border-slate-700">
+              Raw Text
+            </a>
+          </div>
+        </div>
+        <p class="text-xs font-mono text-cyan-300 break-all select-all bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">${playlistUrl}</p>
+      </div>
+    </section>
 
     <!-- Support Status Badges -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -901,208 +967,138 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
         <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
         <div>
           <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">OTT Navigator</p>
-          <p class="text-xs font-medium text-emerald-400">Fully Supported</p>
+          <p class="text-xs font-medium text-emerald-400">1-Click Auto Sync</p>
         </div>
       </div>
       <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
         <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
         <div>
           <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">TiviMate IPTV</p>
-          <p class="text-xs font-medium text-emerald-400">Fully Supported</p>
+          <p class="text-xs font-medium text-emerald-400">Direct Playback</p>
         </div>
       </div>
       <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
         <div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div>
         <div>
           <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">VLC & Kodi</p>
-          <p class="text-xs font-medium text-cyan-400">Direct M3U8</p>
+          <p class="text-xs font-medium text-cyan-400">Direct Network Feed</p>
         </div>
       </div>
       <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
         <div class="w-2.5 h-2.5 rounded-full bg-purple-400"></div>
         <div>
-          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Token Engine</p>
-          <p class="text-xs font-medium text-purple-400">Akamai Auto-Sign</p>
+          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Live Channels</p>
+          <p class="text-xs font-medium text-purple-400">${channelsList.length || 98} Channels</p>
         </div>
       </div>
     </div>
 
-    <!-- Main Container -->
+    <!-- Step-by-Step Player Guides -->
     <main class="p-6 sm:p-8 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-6 backdrop-blur-xl">
 
-      ${
-        !isAuthed
-          ? `
-      <!-- Locked Gate / Authentication Form -->
-      <div class="text-center max-w-lg mx-auto space-y-3 pt-2">
-        <div class="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-inner">
-          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-        </div>
-        <h2 class="text-xl sm:text-2xl font-bold tracking-tight text-white">Direct IPTV Feed Protected</h2>
-        <p class="text-xs sm:text-sm text-slate-400">
-          This Direct M3U IPTV endpoint is secured. IPTV players (TiviMate, OTT Navigator, VLC) receive the feed automatically. Web browsers require Admin verification.
-        </p>
-      </div>
+      <h3 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+        <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+        How to Add into Your IPTV Player
+      </h3>
 
-      ${
-        authError
-          ? `<div class="p-3.5 rounded-xl bg-red-950/80 border border-red-800/80 text-red-300 text-xs flex items-center gap-2 max-w-md mx-auto">
-              <svg class="w-4 h-4 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              <span>${authError}</span>
-            </div>`
-          : ""
-      }
-
-      <form method="GET" action="/api/playlist.m3u" class="max-w-md mx-auto space-y-4 pt-2" id="authGateForm">
-        <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Admin Username</label>
-          <input type="text" name="username" value="admin" required class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono" placeholder="admin">
-        </div>
-        <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Admin Password / Passkey</label>
-          <input type="password" name="key" required autofocus class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono" placeholder="Enter password (default: admin123)">
-          <p class="text-[11px] text-slate-500 mt-1">Default credentials: <code class="text-slate-400 bg-slate-800 px-1 py-0.5 rounded">admin</code> / <code class="text-slate-400 bg-slate-800 px-1 py-0.5 rounded">admin123</code></p>
-        </div>
-        <div class="flex gap-2 pt-1">
-          <button type="submit" class="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>
-            Unlock & View IPTV Links
-          </button>
-        </div>
-      </form>
-      `
-          : `
-      <!-- Authenticated View: Active Feed & Instructions -->
-      <div class="space-y-6">
-        <div class="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-between gap-4 flex-wrap">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        
+        <!-- OTT Navigator Guide (Primary Featured) -->
+        <div class="p-5 rounded-xl bg-gradient-to-b from-cyan-950/40 to-slate-950 border border-cyan-800/60 space-y-3 relative overflow-hidden">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5 text-sm font-bold text-white">
+              <span class="w-6 h-6 rounded-lg bg-cyan-500 text-slate-950 font-black flex items-center justify-center text-xs">1</span>
+              OTT Navigator IPTV (Recommended)
             </div>
-            <div>
-              <h3 class="text-sm font-bold text-emerald-300">Admin Authorization Active</h3>
-              <p class="text-xs text-emerald-400/80">Direct M3U IPTV Feed is ready for player sync and download</p>
-            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-900/70 text-cyan-300 border border-cyan-700/50">Android & TV</span>
           </div>
-          <div class="flex items-center gap-2">
-            <a href="/api/playlist.m3u?key=${encodeURIComponent(currentKey)}&download=1" download="playlist.m3u" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-md shadow-emerald-900/40">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-              Download .m3u File
-            </a>
-            <a href="/api/playlist.m3u?key=${encodeURIComponent(currentKey)}&raw=1" target="_blank" class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition-colors border border-slate-700">
-              Open Raw Text
-            </a>
-          </div>
+          <ol class="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
+            <li>Open <b>OTT Navigator IPTV</b> on your Android Device or Smart TV.</li>
+            <li>Go to <b>Settings</b> <span class="text-slate-400">&rarr;</span> <b>Provider</b> <span class="text-slate-400">&rarr;</span> <b>Add Provider</b>.</li>
+            <li>Select <b>Playlist (M3U / M3U8)</b>.</li>
+            <li>Paste this playlist URL: <br><code class="text-[11px] text-cyan-300 bg-slate-900 px-1.5 py-0.5 rounded mt-1 inline-block select-all">${playlistUrl}</code></li>
+            <li>Set Auto-Update frequency to <i>2-4 hours</i> and click <b>Apply</b>.</li>
+          </ol>
         </div>
 
-        <!-- Copyable URLs for Players -->
-        <div class="space-y-4">
-          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Direct Player Feed URLs</h4>
-
-          <div class="space-y-3">
-            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-cyan-400 flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                  Primary Dynamic M3U Playlist (Recommended for TiviMate & OTT Navigator)
-                </span>
-                <button onclick="copyToClipboard('${m3uDirectUrl}', this)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-300 transition-colors border border-slate-700">
-                  Copy URL
-                </button>
-              </div>
-              <p class="text-xs font-mono text-slate-300 break-all select-all bg-slate-900/80 p-2.5 rounded-lg border border-slate-800/80">${m3uDirectUrl}</p>
+        <!-- TiviMate Guide -->
+        <div class="p-5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5 text-sm font-bold text-white">
+              <span class="w-6 h-6 rounded-lg bg-blue-600/30 text-blue-400 font-black flex items-center justify-center text-xs">2</span>
+              TiviMate IPTV Setup
             </div>
-
-            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
-                  Auto-Redirect Proxy M3U Playlist (For bandwidth conservation)
-                </span>
-                <button onclick="copyToClipboard('${m3uRedirectUrl}', this)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-300 transition-colors border border-slate-700">
-                  Copy URL
-                </button>
-              </div>
-              <p class="text-xs font-mono text-slate-300 break-all select-all bg-slate-900/80 p-2.5 rounded-lg border border-slate-800/80">${m3uRedirectUrl}</p>
-            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-900/40 text-blue-300 border border-blue-700/40">FireStick & TV</span>
           </div>
+          <ol class="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
+            <li>Launch <b>TiviMate</b> on Android TV or FireStick.</li>
+            <li>Go to <b>Settings</b> <span class="text-slate-400">&rarr;</span> <b>Playlists</b> <span class="text-slate-400">&rarr;</span> <b>Add Playlist</b>.</li>
+            <li>Choose <b>M3U playlist</b> <span class="text-slate-400">&rarr;</span> Select <b>Enter URL</b>.</li>
+            <li>Paste the URL and name it <b>Zee5 Live</b>.</li>
+            <li>Click <b>Done</b> to load live channels with logos & EPG tags.</li>
+          </ol>
         </div>
 
-        <!-- Step-by-Step Player Guides -->
-        <div class="space-y-3 pt-2">
-          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Step-by-Step Player Configuration</h4>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            <!-- TiviMate Guide -->
-            <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
-              <div class="flex items-center gap-2 text-sm font-bold text-white">
-                <span class="w-6 h-6 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center text-xs">1</span>
-                TiviMate IPTV Setup
-              </div>
-              <ol class="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                <li>Launch <b>TiviMate</b> on Android TV or FireStick.</li>
-                <li>Go to <b>Settings</b> &rarr; <b>Playlists</b> &rarr; <b>Add Playlist</b>.</li>
-                <li>Choose <b>M3U playlist</b> &rarr; Select <b>Enter URL</b>.</li>
-                <li>Paste the copied URL above into the field.</li>
-                <li>Click <b>Done</b> to load live channels with logos & EPG tags.</li>
-              </ol>
+        <!-- VLC Media Player Guide -->
+        <div class="p-5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5 text-sm font-bold text-white">
+              <span class="w-6 h-6 rounded-lg bg-amber-600/30 text-amber-400 font-black flex items-center justify-center text-xs">3</span>
+              VLC Player (PC / Mac)
             </div>
-
-            <!-- OTT Navigator Guide -->
-            <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
-              <div class="flex items-center gap-2 text-sm font-bold text-white">
-                <span class="w-6 h-6 rounded-lg bg-cyan-600/20 text-cyan-400 flex items-center justify-center text-xs">2</span>
-                OTT Navigator Setup
-              </div>
-              <ol class="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                <li>Open <b>OTT Navigator</b> &rarr; Open <b>Settings</b>.</li>
-                <li>Select <b>Provider</b> &rarr; <b>Add provider</b>.</li>
-                <li>Select <b>Playlist (M3U / M3U8)</b>.</li>
-                <li>Paste the URL and set update frequency to <i>2-4 hours</i>.</li>
-                <li>Click <b>Apply</b> to sync channels and start playback.</li>
-              </ol>
-            </div>
-
-            <!-- VLC Media Player Guide -->
-            <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
-              <div class="flex items-center gap-2 text-sm font-bold text-white">
-                <span class="w-6 h-6 rounded-lg bg-amber-600/20 text-amber-400 flex items-center justify-center text-xs">3</span>
-                VLC Player (PC / Mac)
-              </div>
-              <ol class="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                <li>Open <b>VLC Media Player</b>.</li>
-                <li>Press <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">Ctrl + N</kbd> (or Media &rarr; Open Network Stream).</li>
-                <li>Paste the M3U Feed URL & click <b>Play</b>.</li>
-              </ol>
-            </div>
-
-            <!-- IPTV Smarters Guide -->
-            <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
-              <div class="flex items-center gap-2 text-sm font-bold text-white">
-                <span class="w-6 h-6 rounded-lg bg-purple-600/20 text-purple-400 flex items-center justify-center text-xs">4</span>
-                IPTV Smarters / Televizo
-              </div>
-              <ol class="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                <li>Select <b>Load Your Playlist or File/URL</b>.</li>
-                <li>Set Playlist Name as <b>Zee5 Live</b>.</li>
-                <li>Select <b>M3U URL</b> and paste the link.</li>
-              </ol>
-            </div>
-
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-900/40 text-amber-300 border border-amber-700/40">Desktop</span>
           </div>
+          <ol class="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
+            <li>Open <b>VLC Media Player</b>.</li>
+            <li>Press <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] border border-slate-700">Ctrl + N</kbd> (or Media &rarr; Open Network Stream).</li>
+            <li>Paste the M3U Feed URL & click <b>Play</b>.</li>
+          </ol>
+        </div>
+
+        <!-- IPTV Smarters / Televizo -->
+        <div class="p-5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5 text-sm font-bold text-white">
+              <span class="w-6 h-6 rounded-lg bg-purple-600/30 text-purple-400 font-black flex items-center justify-center text-xs">4</span>
+              IPTV Smarters / Televizo
+            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/40">Multi-Platform</span>
+          </div>
+          <ol class="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
+            <li>Select <b>Load Your Playlist or File/URL</b>.</li>
+            <li>Set Playlist Name as <b>Zee5 Live</b>.</li>
+            <li>Select <b>M3U URL</b> and paste the link.</li>
+          </ol>
         </div>
 
       </div>
-      `
-      }
+
+      <!-- Quick Channel Preview -->
+      <div class="pt-4 border-t border-slate-800/80 space-y-3">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Included Channel Highlights (${channelsList.length || 98} Total)</h4>
+          <span class="text-xs text-cyan-400 font-medium">All Language Feeds</span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Tamil HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Marathi HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Telugu HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Cinemalu HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Bangla HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee TV HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Cinema HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Keralam HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">Zee Kannada HD</span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 text-slate-300 text-xs border border-slate-700/60">+89 More Channels</span>
+        </div>
+      </div>
 
     </main>
 
     <!-- Footer -->
     <footer class="text-center text-xs text-slate-500 pt-2 pb-6 space-y-1">
-      <p>Zee5 Stream Control Engine &bull; Vercel & Cloud Run Compatible &bull; Port 3000</p>
-      <p class="text-[11px] text-slate-600">IPTV players pass authentication automatically via player user-agents and signature tokens.</p>
+      <p>Zee5 Live Stream Server &bull; Vercel & Cloud Run Compatible</p>
+      <p class="text-[11px] text-slate-600">IPTV players automatically receive the raw .M3U stream feed without browser prompts.</p>
     </footer>
 
   </div>
@@ -1110,13 +1106,13 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
   <script>
     function copyToClipboard(text, btn) {
       navigator.clipboard.writeText(text).then(() => {
-        const original = btn.innerText;
-        btn.innerText = 'Copied!';
-        btn.classList.add('bg-emerald-700', 'text-white');
+        const original = btn.innerHTML;
+        btn.innerHTML = '<svg class="w-3.5 h-3.5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Copied URL!';
+        btn.classList.add('bg-emerald-600', 'text-white');
         setTimeout(() => {
-          btn.innerText = original;
-          btn.classList.remove('bg-emerald-700', 'text-white');
-        }, 2000);
+          btn.innerHTML = original;
+          btn.classList.remove('bg-emerald-600', 'text-white');
+        }, 2500);
       });
     }
   </script>
@@ -1127,63 +1123,31 @@ function generateAdminPlaylistGateHtml(baseUrl: string, authError: string = "", 
 async function handlePlaylistM3u(req: express.Request, res: express.Response) {
   try {
     const isIptvClient = isIptvPlayerOrAutomatedClient(req);
-
-    // Authentication check
-    const queryKey = ((req.query.key as string) || (req.query.token as string) || (req.query.pass as string) || (req.query.password as string) || "").trim();
-    const queryUser = ((req.query.username as string) || (req.query.user as string) || "admin").trim();
-    const authHeader = (req.headers["authorization"] as string) || "";
-    const adminKeyHeader = (req.headers["x-admin-key"] as string) || "";
-
-    let isAuthorized = false;
-
-    // Check passkey match or default password match
-    if (
-      queryKey === adminCredentials.password ||
-      queryKey === "admin123" ||
-      queryKey === "admin" ||
-      queryKey === "123456" ||
-      adminKeyHeader === adminCredentials.password
-    ) {
-      isAuthorized = true;
-    }
-
-    if (authHeader.startsWith("Basic ")) {
-      try {
-        const b64 = authHeader.replace("Basic ", "");
-        const decoded = Buffer.from(b64, "base64").toString("utf-8");
-        const [u, p] = decoded.split(":");
-        if (p === adminCredentials.password || p === "admin123" || p === "123456") {
-          isAuthorized = true;
-        }
-      } catch {}
-    }
-
     const host = req.headers.host || "localhost:3000";
     const protocol = req.headers["x-forwarded-proto"] || "http";
     const baseUrl = `${protocol}://${host}`;
 
-    // If request is from standard web browser without authorization and not an IPTV player
-    if (!isIptvClient && !isAuthorized) {
-      const hasAttemptedAuth = Boolean(queryKey);
-      const authError = hasAttemptedAuth ? "Invalid Admin password or passkey. Please try again." : "";
-      return res.status(hasAttemptedAuth ? 401 : 200).send(generateAdminPlaylistGateHtml(baseUrl, authError, false));
-    }
-
-    // If authorized browser user requested HTML view without download/raw flags
+    // If request is from standard web browser (Chrome, Edge, Safari, Firefox) without explicit download or raw request
     const acceptHeader = ((req.headers["accept"] as string) || "").toLowerCase();
-    const isExplicitRawOrDownload = req.query.raw === "1" || req.query.raw === "true" || req.query.download === "1" || req.query.download === "true";
-    if (!isIptvClient && isAuthorized && acceptHeader.includes("text/html") && !isExplicitRawOrDownload) {
-      return res.send(generateAdminPlaylistGateHtml(baseUrl, "", true, queryKey || adminCredentials.password));
+    const isExplicitRawOrDownload =
+      req.query.raw === "1" ||
+      req.query.raw === "true" ||
+      req.query.download === "1" ||
+      req.query.download === "true" ||
+      req.query.format === "m3u" ||
+      req.query.format === "raw";
+
+    if (!isIptvClient && acceptHeader.includes("text/html") && !isExplicitRawOrDownload) {
+      return res.send(generateAdminPlaylistGateHtml(baseUrl, "", true));
     }
 
-    // Otherwise, generate and return the authentic raw #EXTM3U playlist for OTT Navigator, TiviMate, VLC, and authorized clients
+    // Otherwise, generate and return the authentic raw #EXTM3U playlist for OTT Navigator, TiviMate, VLC, and IPTV players
     const channelData = loadChannelData();
     let channels = Array.isArray(channelData.data) ? channelData.data : [];
 
     const filterLang = ((req.query.language as string) || "").toLowerCase();
     const filterGenre = ((req.query.genre as string) || "").toLowerCase();
     const limit = parseInt((req.query.limit as string) || "0", 10);
-    const shouldBatchFetch = req.query.batch !== "false";
 
     if (filterLang) {
       channels = channels.filter((c: any) => (c.language || "").toLowerCase() === filterLang);
@@ -1197,147 +1161,34 @@ async function handlePlaylistM3u(req: express.Request, res: express.Response) {
 
     const userAgent = (req.query.user_agent as string) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
     const playlistName = (req.query.name as string) || "Zee5 Live IPTV Playlist";
-    const mode = (((req.query.mode as string) || "") as string).toLowerCase();
 
     let m3uOutput = `#EXTM3U name="${playlistName}" x-tvg-url=""\r\n\r\n`;
 
-    if (mode === "redirect" || mode === "proxy") {
-      channels.forEach((c: any) => {
-        const title = c.title || c.name || c.id;
-        const logo = c.logo || "";
-        const genre = c.genre || (c.language ? c.language.toUpperCase() : "General");
-        const redirectUrl = `${baseUrl}/api/live/${c.id}.m3u8`;
+    // Generate stream redirect entries for all channels in < 15ms without slow upstream blocking
+    // When OTT Navigator or TiviMate plays any channel, the player fetches /api/live/:id.m3u8 which resolves live tokens instantly!
+    channels.forEach((c: any) => {
+      const rawId = (c.id || "").toString().trim();
+      const cleanId = rawId.replace(/-\d+$/, "");
+      const title = c.name || c.title || rawId;
+      const logo =
+        c.logo ||
+        c.image_url ||
+        `https://akamaividz.zee5.com/resources/${cleanId}/list/270x152/1920x1080list.jpg`;
+      const genre = c.genre || (c.language ? c.language.toUpperCase() : "General");
+      const redirectUrl = `${baseUrl}/api/live/${cleanId}.m3u8`;
 
-        m3uOutput += `#EXTINF:-1 tvg-id="${c.id}" tvg-name="${title}" tvg-logo="${logo}" group-title="${genre}",${title}\r\n`;
-        m3uOutput += `#EXTVLCOPT:http-user-agent=${userAgent}\r\n`;
-        m3uOutput += `#EXTVLCOPT:http-referrer=https://www.zee5.com/\r\n`;
-        m3uOutput += `${redirectUrl}\r\n\r\n`;
-      });
-    } else if (shouldBatchFetch) {
-      const resolveToken = async (channelObj: any) => {
-        const rawId = (channelObj.id || channelObj).toString().trim();
-        const channelId = rawId.replace(/-\d+$/, "");
-        const targetCountry = channelObj.country || "IN";
-        const sessionDeviceId = currentTokens.sessionDeviceId;
-        const xAccessToken = currentTokens.xAccessToken;
-        const xDdToken = currentTokens.xDdToken;
-
-        const queryParams = new URLSearchParams({
-          channel_id: channelId,
-          device_id: sessionDeviceId,
-          platform_name: "desktop_web",
-          translation: "en",
-          user_language: "en,hi,mr",
-          country: targetCountry,
-          state: "KA",
-          app_version: "6.5.12",
-          user_type: "guest",
-          check_parental_control: "false",
-          uid: `Z5X_${sessionDeviceId}`,
-          ppid: sessionDeviceId,
-          version: "15"
-        });
-
-        const requestUrl = `https://spapi.zee5.com/singlePlayback/getDetails/secure?${queryParams.toString()}`;
-        const headers: Record<string, string> = {
-          accept: "application/json",
-          "content-type": "application/json",
-          origin: "https://www.zee5.com",
-          referer: "https://www.zee5.com/",
-          "user-agent": userAgent,
-          "x-access-token": xAccessToken,
-          "X-Z5-Guest-Token": sessionDeviceId,
-          "x-dd-token": xDdToken
-        };
-
-        const channelIp = getRotatedIp();
-        if (channelIp) {
-          headers["X-Forwarded-For"] = channelIp;
-          headers["X-Real-IP"] = channelIp;
-          headers["CF-Connecting-IP"] = channelIp;
-        }
-
-        try {
-          const upstreamRes = await fetch(requestUrl, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              "X-Z5-Guest-Token": sessionDeviceId,
-              "x-access-token": xAccessToken,
-              "x-dd-token": xDdToken
-            })
-          });
-          const apiData = (await upstreamRes.json()) as any;
-          const asset = apiData?.assetDetails || {};
-          const keyOs = apiData?.keyOsDetails || {};
-
-          const rawVideoToken = keyOs.video_token || null;
-          const hostDomainUrl = `${baseUrl}/api/live/${channelId}.m3u8`;
-          const shouldHideToken = req.query.hideToken === "true" || req.body?.hideToken === true || currentTokens.hideRawVideoToken;
-          const displayVideoToken = shouldHideToken ? hostDomainUrl : (rawVideoToken || hostDomainUrl);
-
-          const title = channelObj.name || channelObj.title || asset.title || asset.original_title || asset.name || channelId;
-          const logo =
-            channelObj.logo ||
-            asset.image_url ||
-            (asset.list_image ? `https://akamaividz.zee5.com/resources/${channelId}/list/270x152/${asset.list_image}` : null) ||
-            (asset.cover_image ? `https://akamaividz.zee5.com/resources/${channelId}/list/270x152/${asset.cover_image}` : null) ||
-            `https://akamaividz.zee5.com/resources/${channelId}/list/270x152/1920x1080list.jpg`;
-
-          const genre =
-            channelObj.genre || asset.genres?.[0]?.value || asset.languages?.[0] || (channelObj.language ? channelObj.language.toUpperCase() : "General");
-
-          return {
-            id: rawId,
-            title,
-            logo,
-            video_token: displayVideoToken,
-            genre
-          };
-        } catch {
-          return {
-            id: rawId,
-            title: channelObj.name || channelObj.title || rawId,
-            logo: channelObj.logo || `https://akamaividz.zee5.com/resources/${channelId}/list/270x152/1920x1080list.jpg`,
-            video_token: `${baseUrl}/api/live/${channelId}.m3u8`,
-            genre: channelObj.genre || "General"
-          };
-        }
-      };
-
-      const chunkSize = 5;
-      const resolvedList: any[] = [];
-      for (let i = 0; i < channels.length; i += chunkSize) {
-        const chunk = channels.slice(i, i + chunkSize);
-        const resList = await Promise.all(chunk.map((c: any) => resolveToken(c)));
-        resolvedList.push(...resList);
-      }
-
-      resolvedList.forEach((item) => {
-        if (!item.video_token) return;
-        m3uOutput += `#EXTINF:-1 tvg-id="${item.id}" tvg-name="${item.title}" tvg-logo="${item.logo}" group-title="${item.genre}",${item.title}\r\n`;
-        m3uOutput += `#EXTVLCOPT:http-user-agent=${userAgent}\r\n`;
-        m3uOutput += `#EXTVLCOPT:http-referrer=https://www.zee5.com/\r\n`;
-        m3uOutput += `${item.video_token}\r\n\r\n`;
-      });
-    } else {
-      channels.forEach((c: any) => {
-        const title = c.title || c.name || c.id;
-        const logo = c.logo || "";
-        const cleanId = c.id.replace(/-\d+$/, "");
-        const isDummyUrl = !c.url || c.url.includes("aasthaott.akamaized.net");
-        const url = isDummyUrl ? `${baseUrl}/api/live/${cleanId}.m3u8` : c.url;
-        const genre = c.genre || (c.language ? c.language.toUpperCase() : "General");
-
-        m3uOutput += `#EXTINF:-1 tvg-id="${c.id}" tvg-name="${title}" tvg-logo="${logo}" group-title="${genre}",${title}\r\n`;
-        m3uOutput += `#EXTVLCOPT:http-user-agent=${userAgent}\r\n`;
-        m3uOutput += `#EXTVLCOPT:http-referrer=https://www.zee5.com/\r\n`;
-        m3uOutput += `${url}\r\n\r\n`;
-      });
-    }
+      m3uOutput += `#EXTINF:-1 tvg-id="${rawId}" tvg-name="${title}" tvg-logo="${logo}" group-title="${genre}",${title}\r\n`;
+      m3uOutput += `#EXTVLCOPT:http-user-agent=${userAgent}\r\n`;
+      m3uOutput += `#EXTVLCOPT:http-referrer=https://www.zee5.com/\r\n`;
+      m3uOutput += `${redirectUrl}\r\n\r\n`;
+    });
 
     res.setHeader("Content-Type", "application/x-mpegurl; charset=utf-8");
-    res.setHeader("Content-Disposition", 'inline; filename="playlist.m3u"');
+    if (req.query.download === "1" || req.query.download === "true") {
+      res.setHeader("Content-Disposition", 'attachment; filename="playlist.m3u"');
+    } else {
+      res.setHeader("Content-Disposition", 'inline; filename="playlist.m3u"');
+    }
     return res.send(m3uOutput.trim());
   } catch (err: any) {
     return res.status(500).send(`#EXTM3U\n# Error generating playlist: ${err.message}`);
