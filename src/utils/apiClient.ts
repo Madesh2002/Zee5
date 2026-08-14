@@ -316,6 +316,120 @@ export async function fetchTokensSafe(): Promise<SessionTokens> {
   return defaultTokens;
 }
 
+// Helper to generate a random Indian IPv4 address on the client
+function generateClientRandomPublicIp(): string {
+  const indianPrefixes = [
+    [103, 211],
+    [49, 36],
+    [152, 57],
+    [106, 213],
+    [157, 48],
+    [223, 228],
+    [115, 240],
+    [182, 72],
+    [103, 22],
+    [203, 192]
+  ];
+  const randPrefix = indianPrefixes[Math.floor(Math.random() * indianPrefixes.length)];
+  const octet3 = Math.floor(Math.random() * 254) + 1;
+  const octet4 = Math.floor(Math.random() * 254) + 1;
+  return `${randPrefix[0]}.${randPrefix[1]}.${octet3}.${octet4}`;
+}
+
+/**
+ * Direct Zee5 Upstream Playback Extractor (runs on Client or Server)
+ * Generates true authenticated Akamai tokenized stream URLs
+ */
+export async function fetchLiveStreamFromZee5Direct(
+  channelId: string,
+  tokens?: SessionTokens | null,
+  channel?: Channel
+): Promise<PlaybackFetchResult | null> {
+  try {
+    const sessionTokens = tokens || (await fetchTokensSafe());
+    const cleanId = channelId.trim();
+    const deviceId = sessionTokens.sessionDeviceId || "27dd341d-035b-491f-be43-636a7ee2ee91";
+    const xAccessToken = sessionTokens.xAccessToken || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwbGF0Zm9ybV9jb2RlIjoiV2ViQCQhdDM4NzEyIiwiaXNzdWVkQXQiOiIyMDI2LTA4LTEzVDA2OjU3OjU0LjIwNFoiLCJwcm9kdWN0X2NvZGUiOiJ6ZWU1QDk3NSIsInR0bCI6ODY0MDAwMDAsImlhdCI6MTc4NjYwNDI3NH0.vAp05DYOp1hFKXZY-9Yem0YKnfy5RjqKdUGPnjTDhB0";
+    const xDdToken = sessionTokens.xDdToken || "eyJzY2hlbWFfdmVyc2lvbiI6IjEiLCJvc19uYW1lIjoiV2luZG93cyIsIm9zX3ZlcnNpb24iOiIxMCIsInBsYXRmb3JtX25hbWUiOiJDaHJvbWUiLCJwbGF0Zm9ybV92ZXJzaW9uIjoiMTA0IiwiZGV2aWNlX25hbWUiOiIiLCJhcHBfbmFtZSI6IldlYiIsImFwcF92ZXJzaW9uIjoiMi41Mi4zMSIsInBsYXllcl9jYXBhYmlsaXRpZXMiOnsiYXVkaW9fY2hhbm5lbCI6WyJTVEVSRU8iXSwidmlkZW9fY29kZWMiOlsiSDI2NCJdLCJjb250YWluZXIiOlsiTVA0IiwiVFMiXSwicGFja2FnZSI6WyJEQVNIIiwiSExTIl0sInJlc29sdXRpb24iOlsiMjQwcCIsIlNEIiwiSEQiLCJGSEQiXSwiZHluYW1pY19yYW5nZSI6WyJTRFIiXX0sInNlY3VyaXR5X2NhcGFiaWxpdGllcyI6eyJlbmNyeXB0aW9uIjpbIldJREVWSU5FX0FFU19DVFIiXSwid2lkZXZpbmVfc2VjdXJpdHlfbGV2ZWwiOlsiTDMiXSwiaGRjcF92ZXJzaW9uIjpbIkhEQ1BfVjEiLCJIRENQX1YyIiwiSERDUF9WMl8xIiwiSERDUF9WMl8yIl19fQ==";
+    const clientIp = generateClientRandomPublicIp();
+
+    const queryParams = new URLSearchParams({
+      channel_id: cleanId,
+      device_id: deviceId,
+      platform_name: "desktop_web",
+      translation: "en",
+      user_language: "en,hi,mr",
+      country: channel?.country || "IN",
+      state: "KA",
+      app_version: "6.5.12",
+      user_type: "guest",
+      check_parental_control: "false",
+      uid: `Z5X_${deviceId}`,
+      ppid: deviceId,
+      version: "15"
+    });
+
+    const requestUrl = `https://spapi.zee5.com/singlePlayback/getDetails/secure?${queryParams.toString()}`;
+    const res = await fetch(requestUrl, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        origin: "https://www.zee5.com",
+        referer: "https://www.zee5.com/",
+        "x-access-token": xAccessToken,
+        "X-Z5-Guest-Token": deviceId,
+        "x-dd-token": xDdToken,
+        "X-Forwarded-For": clientIp
+      },
+      body: JSON.stringify({
+        "X-Z5-Guest-Token": deviceId,
+        "x-access-token": xAccessToken,
+        "x-dd-token": xDdToken
+      })
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    const keyOs = json?.keyOsDetails;
+    const asset = json?.assetDetails;
+
+    if (keyOs?.video_token) {
+      const extracted: ExtractedPlaybackData = {
+        id: asset?.id || cleanId,
+        title: asset?.title || asset?.original_title || channel?.title || cleanId,
+        image_url:
+          asset?.image_url ||
+          (asset?.list_image ? `https://akamaividz.zee5.com/resources/${cleanId}/list/270x152/${asset.list_image}` : null) ||
+          channel?.logo ||
+          `https://akamaividz.zee5.com/resources/${cleanId}/list/270x152/1920x1080list.jpg`,
+        video_token: keyOs.video_token,
+        raw_video_token: keyOs.video_token,
+        user_ip_used: clientIp
+      };
+
+      return {
+        ok: true,
+        extracted,
+        fullResponse: {
+          status: "success",
+          extracted,
+          rawResponse: json,
+          requestMeta: {
+            requestUrl,
+            targetChannelId: cleanId,
+            userIp: clientIp
+          }
+        },
+        isClientFallback: false
+      };
+    }
+  } catch (e) {
+    console.warn("Direct client Zee5 fetch attempt notice:", e);
+  }
+  return null;
+}
+
 export interface PlaybackFetchResult {
   ok: boolean;
   extracted: ExtractedPlaybackData | null;
@@ -338,48 +452,62 @@ export async function fetchPlaybackDetailsSafe(
     return { ok: false, extracted: null, fullResponse: null, error: "Channel ID is empty." };
   }
 
+  const baseId = cleanId.replace(/-\d+$/, "");
+  const channelObj = channels?.find((c) => c.id === cleanId || c.id === baseId);
+
   // 1. Try server endpoint GET /api/playback
   let serverRes = await safeFetchJson<any>(
     `/api/playback?id=${encodeURIComponent(cleanId)}&format=full`
   );
 
   // 1b. If not ok, try GET /playback (in case of path rewrites)
-  if (!serverRes.ok || !serverRes.data) {
-    serverRes = await safeFetchJson<any>(
+  if (!serverRes.ok || !serverRes.data || (serverRes.data?.extracted?.video_token && !serverRes.data.extracted.video_token.includes("hdnts="))) {
+    const directServer = await safeFetchJson<any>(
       `/playback?id=${encodeURIComponent(cleanId)}&format=full`
     );
+    if (directServer.ok && directServer.data) {
+      serverRes = directServer;
+    }
   }
 
-  // 1c. If still not ok, try POST /api/playback
-  if (!serverRes.ok || !serverRes.data) {
-    serverRes = await safeFetchJson<any>("/api/playback", {
+  // 1c. If still not ok or token lacks hdnts, try POST /api/playback
+  if (!serverRes.ok || !serverRes.data || (serverRes.data?.extracted?.video_token && !serverRes.data.extracted.video_token.includes("hdnts="))) {
+    const postServer = await safeFetchJson<any>("/api/playback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: cleanId, format: "full" })
     });
+    if (postServer.ok && postServer.data) {
+      serverRes = postServer;
+    }
   }
 
   if (serverRes.ok && serverRes.data) {
-    if (serverRes.data.extracted) {
+    if (serverRes.data.extracted && serverRes.data.extracted.video_token && !serverRes.data.extracted.isFallback) {
       return {
         ok: true,
         extracted: serverRes.data.extracted,
         fullResponse: serverRes.data,
-        isClientFallback: Boolean(serverRes.data.extracted?.isFallback)
+        isClientFallback: false
       };
     }
-    if (serverRes.data.video_token) {
+    if (serverRes.data.video_token && !serverRes.data.video_token.includes("/api/live/")) {
       return {
         ok: true,
         extracted: serverRes.data as ExtractedPlaybackData,
-        fullResponse: serverRes.data
+        fullResponse: serverRes.data,
+        isClientFallback: false
       };
     }
   }
 
-  // 2. Client-side fallback if server returned FUNCTION_INVOCATION_FAILED or 500 error on Vercel
-  const baseId = cleanId.replace(/-\d+$/, "");
-  const channelObj = channels?.find((c) => c.id === cleanId || c.id === baseId);
+  // 2. If serverless returned fallback or was blocked, attempt direct browser-level upstream extraction
+  const directZee5Result = await fetchLiveStreamFromZee5Direct(cleanId, tokens, channelObj);
+  if (directZee5Result && directZee5Result.extracted) {
+    return directZee5Result;
+  }
+
+  // 3. Fallback to channel URL or live proxy if upstream is completely unreachable
   const title = channelObj?.title || cleanId;
   const logo = channelObj?.logo || `https://akamaividz.zee5.com/resources/${baseId}/list/270x152/1920x1080list.jpg`;
   const streamUrl = (channelObj?.url && !channelObj.url.includes("aasthaott.akamaized.net"))
@@ -413,3 +541,4 @@ export async function fetchPlaybackDetailsSafe(
     isClientFallback: true
   };
 }
+
